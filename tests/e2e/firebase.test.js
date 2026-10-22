@@ -1,0 +1,1779 @@
+/* eslint-disable no-console */
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+const { execSync, spawn, execFile: execFileCb } = require('child_process');
+const { promisify } = require('util');
+const execFile = promisify(execFileCb);
+const net = require('net');
+const path = require('path');
+
+const {
+  pullIosCoverage,
+  pullAndroidCoverageWithRetry,
+  pullJsCoverage,
+} = require('../scripts/pull-native-coverage');
+const { recordE2eCloudMetricFromHost } = require('../../packages/app/e2e/cloud-metrics');
+const {
+  parseEmulatorConsolePort,
+  shouldFailFastQemuWithoutAdb,
+  qemuCmdlineMatchesAvd,
+  qemuAvdPgrepPattern,
+  adbRangeDiagnosis,
+  isMetroWaitFailure,
+  shouldColdBootAndroidOnLaunchRetry,
+} = require('./androidAdbRange');
+const { shouldSkipAndroidSettleAndLoad } = require('./androidReadyPolicy');
+const {
+  launchAppTimeoutMs,
+  launchAppMaxAttempts,
+  androidAdbSerialAppearTimeoutMs,
+  jetAwaitExitStallTimeoutMs,
+} = require('./detoxLatencyPolicy');
+const { killJetIgnoringExit } = require('./jetExitIgnoreKill');
+
+const E2E_TEST_PROJECT = 'react-native-firebase-testing';
+const E2E_CLOUD_PRESSURE_LOG_FILTER = 'jsonPayload.message="[rnfb-e2e-metrics]"';
+const E2E_CLOUD_PRESSURE_LOG_CONSOLE_URL = `https://console.cloud.google.com/logs/query;query=${encodeURIComponent(
+  E2E_CLOUD_PRESSURE_LOG_FILTER,
+)};storageScope=project;project=${E2E_TEST_PROJECT}`;
+const E2E_CLOUD_PRESSURE_SUMMARY_CALLABLE = `https://us-central1-${E2E_TEST_PROJECT}.cloudfunctions.net/e2eCloudMetricsSummaryV2`;
+
+function logCloudPressureAnalysisPointer(context) {
+  console.warn(
+    `[rnfb-e2e] cloud-pressure-analysis (${context}): retrospective pressure data is in Cloud Logging ` +
+      `(project=${E2E_TEST_PROJECT}, filter ${E2E_CLOUD_PRESSURE_LOG_FILTER}) or via POST ` +
+      `${E2E_CLOUD_PRESSURE_SUMMARY_CALLABLE} with {"data":{"lookbackHours":24}} — ` +
+      `console: ${E2E_CLOUD_PRESSURE_LOG_CONSOLE_URL}`,
+  );
+}
+
+function platformFromDetoxConfigurationName(name) {
+  if (!name || typeof name !== 'string') {
+    return null;
+  }
+  const lower = name.toLowerCase();
+  if (lower.includes('android')) {
+    return 'android';
+  }
+  if (lower.includes('ios')) {
+    return 'ios';
+  }
+  if (lower.includes('macos') || lower.includes('mac')) {
+    return 'macos';
+  }
+  return null;
+}
+
+// Host-side platform identity: Detox device / configuration only — never RNFB_E2E_PLATFORM.
+function detoxPlatformKey() {
+  try {
+    if (typeof detox !== 'undefined' && detox?.device?.getPlatform) {
+      return detox.device.getPlatform();
+    }
+    if (typeof device !== 'undefined' && device?.getPlatform) {
+      return device.getPlatform();
+    }
+  } catch (_e) {
+    // device not ready
+  }
+  return platformFromDetoxConfigurationName(resolveDetoxConfigurationName()) || 'android';
+}
+
+function parseEnvPort(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Static process.env.RNFB_{ANDROID,IOS,MACOS}_* so babel inline-env bakes every platform's
+// ports when launchers export the full slot block. Runtime picks via detoxPlatformKey().
+function staticPrefixedJetPort(pk) {
+  switch (pk) {
+    case 'android':
+      return parseEnvPort(process.env.RNFB_ANDROID_JET_PORT);
+    case 'macos':
+      return parseEnvPort(process.env.RNFB_MACOS_JET_PORT);
+    case 'ios':
+      return parseEnvPort(process.env.RNFB_IOS_JET_PORT);
+    default:
+      throw new Error(`Unknown detox platform key: ${pk}`);
+  }
+}
+
+function staticPrefixedJetControlPort(pk) {
+  switch (pk) {
+    case 'android':
+      return parseEnvPort(process.env.RNFB_ANDROID_JET_CONTROL_PORT);
+    case 'macos':
+      return parseEnvPort(process.env.RNFB_MACOS_JET_CONTROL_PORT);
+    case 'ios':
+      return parseEnvPort(process.env.RNFB_IOS_JET_CONTROL_PORT);
+    default:
+      throw new Error(`Unknown detox platform key: ${pk}`);
+  }
+}
+
+function staticPrefixedMetroPort(pk) {
+  switch (pk) {
+    case 'android':
+      return parseEnvPort(process.env.RNFB_ANDROID_METRO_PORT);
+    case 'macos':
+      return parseEnvPort(process.env.RNFB_MACOS_METRO_PORT);
+    case 'ios':
+      return parseEnvPort(process.env.RNFB_IOS_METRO_PORT);
+    default:
+      throw new Error(`Unknown detox platform key: ${pk}`);
+  }
+}
+
+function jetRemotePort() {
+  return staticPrefixedJetPort(detoxPlatformKey()) || 8090;
+}
+
+function jetControlPort() {
+  const prefixed = staticPrefixedJetControlPort(detoxPlatformKey());
+  if (prefixed) {
+    return prefixed;
+  }
+  return jetRemotePort() + 1;
+}
+
+function metroPortForHost() {
+  return staticPrefixedMetroPort(detoxPlatformKey()) || 8081;
+}
+
+const LAUNCH_APP_TIMEOUT_MS = launchAppTimeoutMs();
+const LAUNCH_APP_RELEASE_TIMEOUT_MS = parseInt(
+  process.env.RNFB_LAUNCH_APP_RELEASE_TIMEOUT_MS || '120000',
+  10,
+);
+const LAUNCH_APP_MAX_ATTEMPTS = launchAppMaxAttempts();
+const SLOW_TERMINATE_MS = parseInt(process.env.RNFB_SLOW_TERMINATE_MS || '10000', 10);
+const REBOOT_IOS_SIMULATOR_TIMEOUT_MS = parseInt(
+  process.env.RNFB_REBOOT_IOS_SIMULATOR_TIMEOUT_MS || String(12 * 60 * 1000),
+  10,
+);
+const REBOOT_ANDROID_EMULATOR_TIMEOUT_MS = parseInt(
+  process.env.RNFB_REBOOT_ANDROID_EMULATOR_TIMEOUT_MS || '300000',
+  10,
+);
+const ANDROID_READY_MAX_LOAD = parseFloat(process.env.RNFB_ANDROID_READY_MAX_LOAD || '5');
+const ANDROID_READY_LOAD_POLLS = parseInt(process.env.RNFB_ANDROID_READY_LOAD_POLLS || '3', 10);
+const ANDROID_READY_POLL_MS = parseInt(process.env.RNFB_ANDROID_READY_POLL_MS || '2000', 10);
+// Fail fast immediately only when qemu is up and -port is outside adb's emulator
+// console range [5554, 5584] (FreePortFinder 10000–20000). In-range serials
+// (slotted 5556/5558/5560) poll ANDROID_ADB_SERIAL_APPEAR_TIMEOUT_MS first.
+const ANDROID_ADB_SERIAL_APPEAR_TIMEOUT_MS = androidAdbSerialAppearTimeoutMs();
+// Cold-boot kill+relaunch under parallel load needs longer than serial appear poll.
+const ANDROID_COLD_BOOT_REGISTER_TIMEOUT_MS = parseInt(
+  process.env.RNFB_ANDROID_COLD_BOOT_REGISTER_TIMEOUT_MS || '120000',
+  10,
+);
+const ANDROID_PACKAGE_HANDLER_TIMEOUT_MS = parseInt(
+  process.env.RNFB_ANDROID_PACKAGE_HANDLER_TIMEOUT_MS || '30000',
+  10,
+);
+const ANDROID_BOOT_SETTLE_MS = parseInt(process.env.RNFB_ANDROID_BOOT_SETTLE_MS || '30000', 10);
+const ANDROID_AVD_NAME =
+  process.env.RNFB_ANDROID_AVD || process.env.RNFB_ANDROID_AVD_NAME || 'TestingAVD';
+const ANDROID_EMULATOR_COLD_BOOT_ARGS = (
+  process.env.RNFB_ANDROID_EMULATOR_BOOT_ARGS || '-no-snapshot-load -no-snapshot-save'
+).trim();
+const DRAIN_ORCHESTRATE_TIMEOUT_MS = parseInt(
+  process.env.RNFB_DRAIN_ORCHESTRATE_TIMEOUT_MS || '30000',
+  10,
+);
+const KILL_JET_FOR_LAUNCH_RETRY_TIMEOUT_MS = parseInt(
+  process.env.RNFB_KILL_JET_LAUNCH_RETRY_TIMEOUT_MS || '30000',
+  10,
+);
+const JET_RETRYABLE_WS_RE = /\[jet-ws\] RETRYABLE_DISCONNECT code=(1006|1001)\b/;
+const JET_RECONNECT_RECOVERED_RE = /\[jet-ws\] reconnect_recovered code=(1006|1001)\b/;
+const JET_SERVER_NOT_RUNNING_RE = /server wasn't running/i;
+const JET_COVERAGE_LOST_RE = /Coverage summary:[\s\S]*?Unknown% \( 0\/0 \)/;
+const JET_SERVER_STOPPED_RE = /\[🟥\] Stopped the server/i;
+const JET_SUITE_TITLE_FRAGMENT = 'Jet tests on ';
+const JET_COVERAGE_TEARDOWN_RE =
+  /Failed to send 'coverage-ready' message: WebSocket is closed|coverage upload timed out waiting for coverage-ack/i;
+const JET_PROTOCOL_ERROR_RE = /\[🟥\] Unexpected end of JSON input/i;
+const JET_NO_CLIENT_CONNECTED_RE = /Error: No client connected/i;
+const RETRYABLE_CLOUD_QUOTA_RE =
+  /installations\/token-error|Too many server requests|firebaseinstallations\.googleapis\.com|remoteConfig\/failure.*fetch\(\)|Failed to get installations token|\[remoteConfig\/unknown\].*installations/i;
+const CLOUD_QUOTA_RETRY_COOLDOWN_MS = parseInt(
+  process.env.RNFB_CLOUD_QUOTA_RETRY_COOLDOWN_MS || '90000',
+  10,
+);
+const RETRYABLE_LAUNCH_RE =
+  /launchApp timed out|RCTJavaScriptDidFailToLoad|packager-probe|Metro not responding|Metro bundle not available|Unknown application display identifier|Simulator device failed to launch|unknown to FrontBoard|FBSOpenApplicationServiceErrorDomain|ReactContext is null/i;
+const PORT_CLOSED_ERROR_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'EPIPE']);
+
+let cachedUsesLiveMetro;
+let lastJetAttemptContext;
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function isCI() {
+  return process.env.CI === 'true' || process.env.CI === true;
+}
+
+function resolveDetoxConfigurationName() {
+  if (process.env.DETOX_CONFIGURATION) {
+    return process.env.DETOX_CONFIGURATION;
+  }
+
+  if (typeof detox !== 'undefined' && detox?.config?.configurationName) {
+    return detox.config.configurationName;
+  }
+
+  return '';
+}
+
+function resolveAppBinaryPath() {
+  if (typeof detox !== 'undefined' && detox?.config?.apps) {
+    const apps = detox.config.apps;
+    const appConfig = apps.default || apps[Object.keys(apps)[0]];
+    if (appConfig?.binaryPath) {
+      return appConfig.binaryPath;
+    }
+  }
+
+  const fs = require('node:fs');
+  const debugIosApp = path.resolve(
+    __dirname,
+    '../ios/build/Build/Products/Debug-iphonesimulator/testing.app',
+  );
+  if (fs.existsSync(debugIosApp)) {
+    return debugIosApp;
+  }
+  const releaseIosApp = path.resolve(
+    __dirname,
+    '../ios/build/Build/Products/Release-iphonesimulator/testing.app',
+  );
+  if (fs.existsSync(releaseIosApp)) {
+    return releaseIosApp;
+  }
+
+  return '';
+}
+
+function usesLiveMetro() {
+  if (cachedUsesLiveMetro !== undefined) {
+    return cachedUsesLiveMetro;
+  }
+
+  const configName = resolveDetoxConfigurationName();
+  if (/debug/i.test(configName)) {
+    return true;
+  }
+  if (/release/i.test(configName)) {
+    return false;
+  }
+
+  const binaryPath = resolveAppBinaryPath();
+  if (/Debug-|app-debug/i.test(binaryPath)) {
+    return true;
+  }
+  if (/Release-|app-release/i.test(binaryPath)) {
+    return false;
+  }
+
+  return false;
+}
+
+function cacheUsesLiveMetro() {
+  cachedUsesLiveMetro = usesLiveMetro();
+  console.log(`[rnfb-e2e] cached usesLiveMetro=${cachedUsesLiveMetro}`);
+}
+
+function resolveIosSimulatorUdid() {
+  try {
+    if (typeof device !== 'undefined' && device?.id) {
+      return device.id;
+    }
+  } catch (_) {
+    // Detox device may not be ready yet.
+  }
+  return '';
+}
+
+function logLaunchInstallState(label) {
+  let platform = 'unknown';
+  try {
+    if (typeof detox !== 'undefined' && detox?.device?.getPlatform) {
+      platform = detox.device.getPlatform();
+    } else if (typeof device !== 'undefined' && device?.getPlatform) {
+      platform = device.getPlatform();
+    }
+  } catch (_) {
+    // Detox device may not be ready yet.
+  }
+
+  if (platform === 'ios' && process.platform === 'darwin') {
+    const udid = resolveIosSimulatorUdid();
+    if (!udid) {
+      console.log(`[rnfb-e2e] install-state label=${label} udid=unknown skipped=no-ios-udid`);
+      return;
+    }
+
+    try {
+      const container = execSync(
+        `/usr/bin/xcrun simctl get_app_container ${udid} io.invertase.testing 2>&1`,
+        { encoding: 'utf8', timeout: 15000 },
+      ).trim();
+      console.log(`[rnfb-e2e] install-state label=${label} udid=${udid} container=${container}`);
+    } catch (err) {
+      const detail = err?.stdout?.toString?.() || err?.message || String(err);
+      console.warn(
+        `[rnfb-e2e] install-state label=${label} udid=${udid} container=missing detail=${detail}`,
+      );
+    }
+
+    try {
+      const apps = execSync(`/usr/bin/xcrun simctl listapps ${udid} 2>/dev/null`, {
+        encoding: 'utf8',
+        timeout: 30000,
+      });
+      const invertaseLine =
+        apps.split('\n').find(line => line.includes('io.invertase.testing')) || '(not listed)';
+      console.log(`[rnfb-e2e] install-state label=${label} listapps=${invertaseLine.trim()}`);
+    } catch (err) {
+      console.warn(
+        `[rnfb-e2e] install-state label=${label} listapps=error detail=${err?.message || err}`,
+      );
+    }
+    return;
+  }
+
+  if (platform === 'android') {
+    const serial = resolveAndroidSerial();
+    try {
+      const apk = adbShell(serial, 'pm path com.invertase.testing');
+      console.log(`[rnfb-e2e] install-state label=${label} serial=${serial} apk=${apk}`);
+    } catch (err) {
+      console.warn(
+        `[rnfb-e2e] install-state label=${label} serial=${serial} apk=missing detail=${err?.message || err}`,
+      );
+    }
+    return;
+  }
+
+  console.log(`[rnfb-e2e] install-state label=${label} skipped=platform-${platform}`);
+}
+
+function rebootIosSimulator(testsDir) {
+  return new Promise((resolve, reject) => {
+    const repoRoot = path.resolve(testsDir, '..');
+    const bootScript = path.join(repoRoot, '.github/workflows/scripts/boot-simulator.sh');
+    console.warn(`[rnfb-e2e] Rebooting iOS simulator via ${bootScript}`);
+    const child = spawn('bash', [bootScript], {
+      cwd: repoRoot,
+      stdio: 'inherit',
+      env: { ...process.env },
+    });
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      reject(new Error(`boot-simulator.sh timed out after ${REBOOT_IOS_SIMULATOR_TIMEOUT_MS}ms`));
+    }, REBOOT_IOS_SIMULATOR_TIMEOUT_MS);
+
+    child.on('close', code => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`boot-simulator.sh failed with code ${code}`));
+    });
+    child.on('error', err => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+function resolveAdbPath() {
+  const sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
+  return sdkRoot ? path.join(sdkRoot, 'platform-tools', 'adb') : 'adb';
+}
+
+function resolveEmulatorPath() {
+  const sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
+  if (!sdkRoot) {
+    throw new Error(
+      'ANDROID_HOME or ANDROID_SDK_ROOT is required to cold boot the Android emulator',
+    );
+  }
+  return path.join(sdkRoot, 'emulator', 'emulator');
+}
+
+function resolveAndroidEmulatorPort(serial) {
+  const port = parseEmulatorConsolePort(serial);
+  return Number.isInteger(port) ? String(port) : '5554';
+}
+
+function adbDeviceState(serial) {
+  const adb = resolveAdbPath();
+  try {
+    return execSync(`${adb} -s ${serial} get-state`, {
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+  } catch (_) {
+    return 'unknown';
+  }
+}
+
+function pinnedAndroidConsolePort() {
+  const raw = process.env.RNFB_ANDROID_CONSOLE_PORT;
+  if (raw === undefined || raw === '') {
+    return null;
+  }
+  const port = Number.parseInt(raw, 10);
+  return Number.isInteger(port) ? port : null;
+}
+
+function pinnedAndroidSerial() {
+  if (process.env.ANDROID_SERIAL) {
+    return process.env.ANDROID_SERIAL;
+  }
+  const port = pinnedAndroidConsolePort();
+  if (port != null) {
+    return `emulator-${port}`;
+  }
+  return null;
+}
+
+function resolveAndroidSerial() {
+  // Prefer the slotted pin (adb-safe 5556+2n) over a stale Detox device.id
+  // from FreePortFinder 10000–20000 after kill+relaunch.
+  const pinned = pinnedAndroidSerial();
+  if (pinned) {
+    return pinned;
+  }
+  try {
+    if (typeof device !== 'undefined' && device?.id) {
+      return device.id;
+    }
+  } catch (_) {
+    // Detox device may not be ready yet.
+  }
+  return 'emulator-5554';
+}
+
+function qemuRunningForAvd(avdName) {
+  try {
+    const cmdlines = execSync('ps -Ao args=', {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return cmdlines
+      .split('\n')
+      .some(line => line.includes('qemu-system') && qemuCmdlineMatchesAvd(line, avdName));
+  } catch (_) {
+    return false;
+  }
+}
+
+function qemuWithoutAdbError(serial, state) {
+  return new Error(
+    `[rnfb-e2e] ${adbRangeDiagnosis(serial, ANDROID_AVD_NAME)} (adb get-state=${state})`,
+  );
+}
+
+async function waitForAdbSerialDevice(serial, timeoutMs = ANDROID_ADB_SERIAL_APPEAR_TIMEOUT_MS) {
+  let state = adbDeviceState(serial);
+  if (state === 'device') {
+    return;
+  }
+  if (qemuRunningForAvd(ANDROID_AVD_NAME) && shouldFailFastQemuWithoutAdb(serial, state)) {
+    throw qemuWithoutAdbError(serial, state);
+  }
+  console.log(
+    `[rnfb-e2e] waiting up to ${timeoutMs}ms for adb serial ${serial} to become 'device' (get-state=${state})`,
+  );
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (adbDeviceState(serial) === 'device') {
+      return;
+    }
+    await sleep(1000);
+  }
+  state = adbDeviceState(serial);
+  if (qemuRunningForAvd(ANDROID_AVD_NAME) && state !== 'device') {
+    throw qemuWithoutAdbError(serial, state);
+  }
+  throw new Error(
+    `[rnfb-e2e] adb serial ${serial} did not become 'device' within ${timeoutMs}ms (get-state=${state})`,
+  );
+}
+
+function adbShell(serial, command, timeoutMs = 15000) {
+  const adb = resolveAdbPath();
+  return execSync(`${adb} -s ${serial} shell ${command}`, {
+    encoding: 'utf8',
+    timeout: timeoutMs,
+  }).trim();
+}
+
+function parseGuestLoad1Min(loadavgLine) {
+  const first = loadavgLine.trim().split(/\s+/)[0];
+  const load = parseFloat(first);
+  return Number.isFinite(load) ? load : NaN;
+}
+
+function listTcpListenPids(port) {
+  let pidList = '';
+  try {
+    pidList = execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null || true`, {
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+  } catch (_) {
+    return [];
+  }
+  return pidList
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(pid => /^\d+$/.test(pid));
+}
+
+async function killTcpPortListener(port, label) {
+  let pids = listTcpListenPids(port);
+  if (pids.length === 0) {
+    console.log(`[rnfb-e2e] ${label}: no listener on :${port}`);
+    return;
+  }
+
+  console.warn(`[rnfb-e2e] ${label}: killing stray listener on :${port} pid=${pids.join(',')}`);
+  try {
+    execSync(`kill ${pids.join(' ')}`, { stdio: 'inherit', timeout: 5000 });
+  } catch (err) {
+    console.warn(`[rnfb-e2e] ${label}: SIGTERM :${port} failed: ${err?.message || err}`);
+  }
+  await sleep(500);
+  pids = listTcpListenPids(port);
+  if (pids.length === 0) {
+    return;
+  }
+  console.warn(`[rnfb-e2e] ${label}: SIGKILL leftover listener on :${port} pid=${pids.join(',')}`);
+  try {
+    execSync(`kill -9 ${pids.join(' ')}`, { stdio: 'inherit', timeout: 5000 });
+  } catch (err) {
+    console.warn(`[rnfb-e2e] ${label}: SIGKILL :${port} failed: ${err?.message || err}`);
+  }
+}
+
+async function ensureTcpPortClosed(port, label, timeoutMs = KILL_JET_FOR_LAUNCH_RETRY_TIMEOUT_MS) {
+  await killTcpPortListener(port, label);
+  await waitForTcpPortClosed(port, '127.0.0.1', timeoutMs);
+}
+
+function forceStopAndroidTestingApps(label) {
+  const adb = resolveAdbPath();
+  const serial = resolveAndroidSerial();
+  const packages = ['com.invertase.testing', 'com.invertase.testing.test'];
+
+  for (const appId of packages) {
+    try {
+      console.log(`[rnfb-e2e] ${label}: force-stopping ${appId} serial=${serial}`);
+      execSync(`${adb} -s ${serial} shell am force-stop ${appId}`, {
+        stdio: 'inherit',
+        timeout: 15000,
+      });
+    } catch (err) {
+      console.warn(`[rnfb-e2e] ${label}: force-stop ${appId} failed: ${err?.message || err}`);
+    }
+  }
+}
+
+async function waitForAndroidInstrumentationStopped(label, timeoutMs = 30000) {
+  const serial = resolveAndroidSerial();
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      const pid = adbShell(serial, 'pidof com.invertase.testing.test', 5000);
+      if (!pid) {
+        console.log(`[rnfb-e2e] ${label}: instrumentation pid clear`);
+        return;
+      }
+      console.log(`[rnfb-e2e] ${label}: waiting for instrumentation pid=${pid}`);
+    } catch (_) {
+      console.log(`[rnfb-e2e] ${label}: instrumentation pid clear`);
+      return;
+    }
+    await sleep(1000);
+  }
+
+  throw new Error(`[rnfb-e2e] ${label}: instrumentation pid still present after ${timeoutMs}ms`);
+}
+
+function usesSlottedJetPorts() {
+  return Boolean(
+    process.env.RNFB_ANDROID_JET_PORT ||
+    process.env.RNFB_IOS_JET_PORT ||
+    process.env.RNFB_MACOS_JET_PORT,
+  );
+}
+
+function clearStaleMacOsTestingForSharedJetPort(label) {
+  if (usesSlottedJetPorts()) {
+    return;
+  }
+  if (process.platform !== 'darwin') {
+    return;
+  }
+
+  const macName = process.env.RNFB_MACOS_PRODUCT_NAME || 'io.invertase.testing';
+  console.log(`[rnfb-e2e] ${label}: killing stale macOS ${macName} for shared :${jetRemotePort()}`);
+  try {
+    execSync(`killall ${JSON.stringify(macName)}`, { stdio: 'inherit', timeout: 5000 });
+  } catch (_) {
+    // not running — expected
+  }
+
+  try {
+    execSync("pkill -f 'tests:macos:test-cover|jet --target=macos' 2>/dev/null || true", {
+      stdio: 'inherit',
+      timeout: 5000,
+    });
+  } catch (_) {
+    // no stray macOS jet — expected
+  }
+}
+
+async function ensureAndroidJetHostClear(label = 'android-jet-host-clear') {
+  console.log(`[rnfb-e2e] ${label}: clearing Android apps and Jet port before spawn`);
+  clearStaleMacOsTestingForSharedJetPort(label);
+  forceStopAndroidTestingApps(label);
+  await waitForAndroidInstrumentationStopped(label);
+  await ensureTcpPortClosed(jetRemotePort(), label);
+  console.log(`[rnfb-e2e] ${label}: host clear`);
+}
+
+async function waitUntilQemuGoneForAvd(avdName, timeoutMs = 60000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!qemuRunningForAvd(avdName)) {
+      return;
+    }
+    await sleep(500);
+  }
+  throw new Error(
+    `[rnfb-e2e] cold-boot: qemu for AVD ${avdName} still present after kill within ${timeoutMs}ms`,
+  );
+}
+
+async function waitForColdBootEmulatorRegistered(serial, avdName, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  console.log(
+    `[rnfb-e2e] cold-boot: waiting up to ${timeoutMs}ms for qemu @${avdName} and adb serial ${serial}`,
+  );
+  while (Date.now() < deadline) {
+    const qemuUp = qemuRunningForAvd(avdName);
+    const state = adbDeviceState(serial);
+    if (qemuUp && state === 'device') {
+      console.log(`[rnfb-e2e] cold-boot: qemu+adb registered serial=${serial}`);
+      return;
+    }
+    await sleep(1000);
+  }
+  const qemuUp = qemuRunningForAvd(avdName);
+  const state = adbDeviceState(serial);
+  throw new Error(
+    `[rnfb-e2e] cold-boot spawn did not register: AVD=${avdName} serial=${serial} ` +
+      `qemuUp=${qemuUp} adb get-state=${state} within ${timeoutMs}ms ` +
+      `(not a Detox FreePortFinder diagnosis — spawn/re-attach after emu kill failed)`,
+  );
+}
+
+async function coldBootAndroidEmulator() {
+  const adb = resolveAdbPath();
+  const serial = resolveAndroidSerial();
+  const port = resolveAndroidEmulatorPort(serial);
+  const coldBootSerial = `emulator-${port}`;
+  const emulatorPath = resolveEmulatorPath();
+  const extraBootArgs = ANDROID_EMULATOR_COLD_BOOT_ARGS.split(/\s+/).filter(Boolean);
+
+  console.warn(
+    `[rnfb-e2e] Cold booting Android emulator serial=${serial} avd=${ANDROID_AVD_NAME} ` +
+      `(kill + relaunch with ${extraBootArgs.join(' ')})`,
+  );
+
+  try {
+    execSync(`${adb} -s ${serial} emu kill`, { stdio: 'inherit', timeout: 60000 });
+  } catch (err) {
+    console.warn(`[rnfb-e2e] emu kill failed (continuing): ${err?.message || err}`);
+  }
+
+  try {
+    execSync(`pkill -f ${JSON.stringify(qemuAvdPgrepPattern(ANDROID_AVD_NAME))}`, {
+      stdio: 'ignore',
+      timeout: 5000,
+    });
+  } catch (_) {
+    // No matching emulator process.
+  }
+
+  // Do not spawn while a dying Detox/prior qemu for this exact @AVD is still listed.
+  await waitUntilQemuGoneForAvd(ANDROID_AVD_NAME);
+
+  const emulatorArgs = [
+    '-verbose',
+    '-no-audio',
+    '-no-boot-anim',
+    '-read-only',
+    '-port',
+    port,
+    ...extraBootArgs,
+    `@${ANDROID_AVD_NAME}`,
+  ];
+
+  const child = spawn(emulatorPath, emulatorArgs, {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+
+  // Wait until *this* cold-boot qemu cmdline exists and adb lists the serial.
+  // Do not fail-fast on a transient dying qemu via waitForAdbSerialDevice.
+  return waitForColdBootEmulatorRegistered(
+    coldBootSerial,
+    ANDROID_AVD_NAME,
+    ANDROID_COLD_BOOT_REGISTER_TIMEOUT_MS,
+  );
+}
+
+async function waitForAndroidEmulatorReady() {
+  const serial = resolveAndroidSerial();
+  console.log(
+    `[rnfb-e2e] android-ready using serial=${serial} (pinned ANDROID_SERIAL / RNFB_ANDROID_CONSOLE_PORT preferred over device.id)`,
+  );
+  await waitForAdbSerialDevice(serial);
+  const deadline = Date.now() + REBOOT_ANDROID_EMULATOR_TIMEOUT_MS;
+  let stableLoadPolls = 0;
+  let packageHandlerDone = false;
+  let bootSettleDone = false;
+
+  while (Date.now() < deadline) {
+    try {
+      const deviceState = adbDeviceState(serial);
+      if (deviceState !== 'device') {
+        if (deviceState === 'unknown' && qemuRunningForAvd(ANDROID_AVD_NAME)) {
+          if (shouldFailFastQemuWithoutAdb(serial, deviceState)) {
+            throw qemuWithoutAdbError(serial, deviceState);
+          }
+          console.warn(
+            `[rnfb-e2e] android-ready serial=${serial} state=unknown with qemu up; ` +
+              `port is in adb range — polling ${ANDROID_ADB_SERIAL_APPEAR_TIMEOUT_MS}ms`,
+          );
+          await waitForAdbSerialDevice(serial);
+        } else {
+          stableLoadPolls = 0;
+          if (deviceState === 'offline') {
+            console.warn(
+              `[rnfb-e2e] android-ready probe serial=${serial} state=offline (Quick Boot gray screen?) — ` +
+                'kill emulator and rerun; Detox should cold boot with -no-snapshot-load',
+            );
+          } else {
+            console.warn(
+              `[rnfb-e2e] android-ready probe serial=${serial} state=${deviceState} — waiting for adb`,
+            );
+          }
+          await sleep(ANDROID_READY_POLL_MS);
+          continue;
+        }
+      }
+
+      const bootCompleted = adbShell(serial, 'getprop sys.boot_completed');
+      const bootDev = adbShell(serial, 'getprop dev.bootcomplete');
+      const provisioned = adbShell(serial, 'settings get global device_provisioned');
+      adbShell(serial, 'echo ok', 5000);
+
+      if (bootCompleted !== '1') {
+        stableLoadPolls = 0;
+        console.log(`[rnfb-e2e] android-ready probe boot_completed=${bootCompleted} (waiting)`);
+        await sleep(ANDROID_READY_POLL_MS);
+        continue;
+      }
+
+      if (bootDev !== '1') {
+        stableLoadPolls = 0;
+        console.log(`[rnfb-e2e] android-ready probe dev.bootcomplete=${bootDev} (waiting)`);
+        await sleep(ANDROID_READY_POLL_MS);
+        continue;
+      }
+
+      if (provisioned !== '1') {
+        stableLoadPolls = 0;
+        console.log(`[rnfb-e2e] android-ready probe provisioned=${provisioned} (waiting)`);
+        await sleep(ANDROID_READY_POLL_MS);
+        continue;
+      }
+
+      if (!packageHandlerDone) {
+        console.log('[rnfb-e2e] android-ready probe waiting for package handler queue...');
+        try {
+          adbShell(
+            serial,
+            `cmd package wait-for-handler --timeout ${ANDROID_PACKAGE_HANDLER_TIMEOUT_MS}`,
+            ANDROID_PACKAGE_HANDLER_TIMEOUT_MS + 5000,
+          );
+          packageHandlerDone = true;
+          console.log('[rnfb-e2e] android-ready probe package handler ready');
+        } catch (err) {
+          console.warn(`[rnfb-e2e] android-ready package handler wait: ${err?.message || err}`);
+          await sleep(ANDROID_READY_POLL_MS);
+          continue;
+        }
+      }
+
+      if (shouldSkipAndroidSettleAndLoad(isCI())) {
+        console.log('[rnfb-e2e] android-ready: skipping settle/load (not CI)');
+        console.log(`[rnfb-e2e] Android emulator ready serial=${serial}`);
+        return;
+      }
+
+      if (!bootSettleDone) {
+        console.log(
+          `[rnfb-e2e] android-ready boot complete; settling ${ANDROID_BOOT_SETTLE_MS}ms before load polling`,
+        );
+        await sleep(ANDROID_BOOT_SETTLE_MS);
+        bootSettleDone = true;
+        stableLoadPolls = 0;
+      }
+
+      const loadLine = adbShell(serial, 'cat /proc/loadavg');
+      const load1 = parseGuestLoad1Min(loadLine);
+      if (!Number.isFinite(load1) || load1 >= ANDROID_READY_MAX_LOAD) {
+        stableLoadPolls = 0;
+        console.log(
+          `[rnfb-e2e] android-ready probe load1=${load1} max=${ANDROID_READY_MAX_LOAD} loadavg="${loadLine.trim()}" (waiting)`,
+        );
+        await sleep(ANDROID_READY_POLL_MS);
+        continue;
+      }
+
+      stableLoadPolls += 1;
+      console.log(
+        `[rnfb-e2e] android-ready probe load1=${load1} stable=${stableLoadPolls}/${ANDROID_READY_LOAD_POLLS} boot=1 provisioned=1`,
+      );
+      if (stableLoadPolls >= ANDROID_READY_LOAD_POLLS) {
+        console.log(`[rnfb-e2e] Android emulator ready serial=${serial}`);
+        return;
+      }
+      await sleep(ANDROID_READY_POLL_MS);
+    } catch (err) {
+      const msg = err?.message || String(err);
+      if (msg.includes('qemu-without-adb')) {
+        throw err;
+      }
+      stableLoadPolls = 0;
+      console.warn(`[rnfb-e2e] android-ready probe: ${msg}`);
+      await sleep(ANDROID_READY_POLL_MS);
+    }
+  }
+
+  throw new Error(
+    `Android emulator did not become ready within ${REBOOT_ANDROID_EMULATOR_TIMEOUT_MS}ms (serial=${serial})`,
+  );
+}
+
+async function drainJetAttempt(platform) {
+  const ctx = lastJetAttemptContext;
+  console.warn('[rnfb-e2e] Draining Jet attempt before outer retry...');
+
+  if (platform === 'android') {
+    try {
+      await device.terminateApp();
+    } catch (_) {
+      // Detox may already be disconnected.
+    }
+    forceStopAndroidTestingApps('drain');
+  } else {
+    try {
+      await device.terminateApp();
+    } catch (_) {
+      // No-op
+    }
+  }
+
+  if (ctx?.orchestratePromise) {
+    await Promise.race([
+      ctx.orchestratePromise.catch(() => {}),
+      sleep(DRAIN_ORCHESTRATE_TIMEOUT_MS).then(() => {
+        console.warn(
+          `[rnfb-e2e] drain orchestrate timed out after ${DRAIN_ORCHESTRATE_TIMEOUT_MS}ms`,
+        );
+      }),
+    ]);
+  }
+
+  if (ctx?.jetProcess && !ctx.jetProcess.killed) {
+    ctx.jetProcess.kill('SIGTERM');
+    await sleep(500);
+    killSpawnedProcessTree(ctx.jetProcess);
+  }
+
+  if (platform === 'android') {
+    await ensureAndroidJetHostClear('drain');
+  } else {
+    await ensureTcpPortClosed(jetRemotePort(), 'drain');
+  }
+
+  console.log('[rnfb-e2e] Jet attempt drain complete');
+}
+
+function waitForTcpPort(port, host = '127.0.0.1', timeoutMs = 120000) {
+  const start = Date.now();
+
+  return new Promise((resolve, reject) => {
+    const tryConnect = () => {
+      if (Date.now() - start > timeoutMs) {
+        reject(new Error(`Timed out waiting for ${host}:${port} after ${timeoutMs}ms`));
+        return;
+      }
+
+      const socket = net.connect(port, host);
+      socket.once('connect', () => {
+        socket.end();
+        resolve();
+      });
+      socket.once('error', () => {
+        socket.destroy();
+        setTimeout(tryConnect, 250);
+      });
+    };
+
+    tryConnect();
+  });
+}
+
+function waitForTcpPortClosed(port, host = '127.0.0.1', timeoutMs = 120000) {
+  const start = Date.now();
+  let probes = 0;
+
+  return new Promise((resolve, reject) => {
+    const probe = () => {
+      if (Date.now() - start > timeoutMs) {
+        reject(
+          new Error(
+            `Timed out waiting for ${host}:${port} to close after ${timeoutMs}ms (probes=${probes})`,
+          ),
+        );
+        return;
+      }
+
+      probes += 1;
+      const socket = net.connect(port, host);
+      socket.once('connect', () => {
+        socket.end();
+        setTimeout(probe, 250);
+      });
+      socket.once('error', err => {
+        socket.destroy();
+        const elapsedMs = Date.now() - start;
+        const code = err?.code || 'UNKNOWN';
+        if (PORT_CLOSED_ERROR_CODES.has(code)) {
+          console.log(
+            `[rnfb-e2e] port ${host}:${port} closed (code=${code}, elapsed=${elapsedMs}ms, probes=${probes})`,
+          );
+          resolve();
+          return;
+        }
+        console.warn(
+          `[rnfb-e2e] port-probe non-close error code=${code} host=${host} port=${port} probe=${probes}`,
+        );
+        setTimeout(probe, 250);
+      });
+    };
+
+    probe();
+  });
+}
+
+function isRetryableJetDisconnect(output) {
+  return JET_RETRYABLE_WS_RE.test(output);
+}
+
+function countJetSuiteTitles(output) {
+  const text = String(output);
+  let count = 0;
+  let from = 0;
+  while (from < text.length) {
+    const idx = text.indexOf(JET_SUITE_TITLE_FRAGMENT, from);
+    if (idx === -1) {
+      break;
+    }
+    count += 1;
+    from = idx + JET_SUITE_TITLE_FRAGMENT.length;
+  }
+  return count;
+}
+
+function hasJetReconnectDesyncSignal(output) {
+  // Suite re-entry after reconnect (preserving_runner restarted the mocha tree),
+  // or prior reconnect gates: lost coverage / server stopped mid-session.
+  return (
+    countJetSuiteTitles(output) >= 2 ||
+    JET_COVERAGE_LOST_RE.test(output) ||
+    JET_SERVER_STOPPED_RE.test(output)
+  );
+}
+
+function isJetReconnectDesyncFailure(output) {
+  return JET_RECONNECT_RECOVERED_RE.test(output) && hasJetReconnectDesyncSignal(output);
+}
+
+function isRetryableJetSessionFailure(output) {
+  if (JET_SERVER_NOT_RUNNING_RE.test(output)) {
+    return true;
+  }
+
+  if (JET_COVERAGE_TEARDOWN_RE.test(output)) {
+    return true;
+  }
+
+  if (JET_PROTOCOL_ERROR_RE.test(output)) {
+    return true;
+  }
+
+  if (JET_NO_CLIENT_CONNECTED_RE.test(output)) {
+    return true;
+  }
+
+  // Bare reconnect_recovered is not enough — product assertion failures after a
+  // benign reconnect must fail the attempt. Retry only when reconnect coincides
+  // with a desync / polluted-session signal (suite re-entry, coverage 0/0, or
+  // server stopped).
+  if (isJetReconnectDesyncFailure(output)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isRetryableCloudQuotaFailure(jetOutput) {
+  return RETRYABLE_CLOUD_QUOTA_RE.test(jetOutput);
+}
+
+function isRetryableLaunchFailure(err) {
+  const message = err?.message || '';
+  if (err?.retryableAtJetLevel) {
+    return true;
+  }
+  // Device-side Android faults that warrant cold-boot must also be retryable at
+  // launch/Jet level (pm install SIGTERM, package/activity service missing, etc.).
+  if (shouldColdBootAndroidOnLaunchRetry(err)) {
+    return true;
+  }
+  if (!usesLiveMetro()) {
+    return (
+      /launchApp timed out/i.test(message) ||
+      RETRYABLE_LAUNCH_RE.test(message) ||
+      /FrontBoard|unknown to FrontBoard|FBSOpenApplication/i.test(message)
+    );
+  }
+  return RETRYABLE_LAUNCH_RE.test(message);
+}
+
+function isRetryableE2eFailure(err) {
+  const jetOutput = err?.jetOutput || '';
+  return (
+    isRetryableJetDisconnect(jetOutput) ||
+    isRetryableJetSessionFailure(jetOutput) ||
+    isRetryableCloudQuotaFailure(jetOutput) ||
+    isRetryableLaunchFailure(err)
+  );
+}
+
+function logRetryEligibility(err, attempt) {
+  const jetOutput = err?.jetOutput || '';
+  const checks = {
+    jetDisconnect: isRetryableJetDisconnect(jetOutput),
+    jetSession: isRetryableJetSessionFailure(jetOutput),
+    jetReconnectRecovered: JET_RECONNECT_RECOVERED_RE.test(jetOutput),
+    jetReconnectDesync: isJetReconnectDesyncFailure(jetOutput),
+    jetReconnectSuiteRestart: countJetSuiteTitles(jetOutput) >= 2,
+    jetProtocol: JET_PROTOCOL_ERROR_RE.test(jetOutput),
+    jetNoClient: JET_NO_CLIENT_CONNECTED_RE.test(jetOutput),
+    coverageTeardown: JET_COVERAGE_TEARDOWN_RE.test(jetOutput),
+    cloudQuota: isRetryableCloudQuotaFailure(jetOutput),
+    launchFailure: isRetryableLaunchFailure(err),
+    launchJetLevel: Boolean(err?.retryableAtJetLevel),
+  };
+  console.warn(
+    `[rnfb-e2e] retry-eligibility attempt=${attempt} retryable=${attempt === 1 && isRetryableE2eFailure(err)} checks=${JSON.stringify(checks)}`,
+  );
+}
+
+async function waitForMetro(port = metroPortForHost(), timeoutMs = 120000) {
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/status`);
+      const body = await response.text();
+      if (body.includes('packager-status:running')) {
+        console.log(`[rnfb-e2e] Metro OK on 127.0.0.1:${port}`);
+        return;
+      }
+      console.warn(
+        `[rnfb-e2e] Metro 127.0.0.1:${port}/status returned unexpected body: ${body.slice(0, 120)}`,
+      );
+    } catch (_) {
+      // Metro not ready yet; keep polling.
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  throw new Error(
+    `Metro not responding with packager-status:running on 127.0.0.1:${port} after ${timeoutMs}ms`,
+  );
+}
+
+function metroBundleQuery() {
+  const pk = detoxPlatformKey();
+  let q =
+    `platform=${pk}&dev=true&lazy=true&minify=false&inlineSourceMap=true` +
+    '&modulesOnly=false&runModule=true';
+  if (pk === 'macos' && process.env.RNFB_MACOS_BUNDLE_IDENTIFIER) {
+    q += `&app=${process.env.RNFB_MACOS_BUNDLE_IDENTIFIER}`;
+  }
+  return q;
+}
+
+// /status can be up while the first bundle compile is still in-flight. Prefetch
+// so Detox/Jet does not launch into a hung "Loading from Metro" screen.
+async function waitForMetroBundle(port = metroPortForHost(), timeoutMs = 600000) {
+  const url = `http://127.0.0.1:${port}/index.bundle?${metroBundleQuery()}`;
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const remainingSec = Math.max(30, Math.ceil((timeoutMs - (Date.now() - start)) / 1000));
+    const sliceSec = Math.min(120, remainingSec);
+    try {
+      await execFile('curl', ['-sf', '--max-time', String(sliceSec), '-o', '/dev/null', url]);
+      console.log(`[rnfb-e2e] Metro bundle prefetched from ${url}`);
+      return;
+    } catch (err) {
+      console.warn(
+        `[rnfb-e2e] Metro bundle prefetch retry (code=${err?.code ?? 'unknown'}) url=${url}`,
+      );
+    }
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+  throw new Error(`Metro bundle not available at ${url} after ${timeoutMs}ms`);
+}
+
+async function waitForLiveMetro(port = metroPortForHost()) {
+  await waitForMetro(port);
+  await waitForMetroBundle(port);
+}
+
+async function terminateAppWithTiming(label) {
+  const start = Date.now();
+  try {
+    await device.terminateApp();
+    const elapsedMs = Date.now() - start;
+    console.log(`[rnfb-e2e] terminateApp label=${label} elapsed=${elapsedMs}ms`);
+    return elapsedMs;
+  } catch (err) {
+    const elapsedMs = Date.now() - start;
+    console.warn(
+      `[rnfb-e2e] terminateApp label=${label} elapsed=${elapsedMs}ms error=${err?.message || err}`,
+    );
+    return elapsedMs;
+  }
+}
+
+async function launchAppWithTimeout(launchArgs, { deleteApp = true, timeoutMs } = {}) {
+  const effectiveTimeout =
+    timeoutMs ?? (usesLiveMetro() ? LAUNCH_APP_TIMEOUT_MS : LAUNCH_APP_RELEASE_TIMEOUT_MS);
+  console.log(
+    `[rnfb-e2e] launchApp starting timeout=${effectiveTimeout}ms delete=${deleteApp} liveMetro=${usesLiveMetro()}`,
+  );
+  logLaunchInstallState(`before-launch delete=${deleteApp}`);
+  let timer;
+
+  try {
+    const launchConfig = {
+      newInstance: true,
+      delete: deleteApp,
+      launchArgs,
+    };
+    // iOS Simulator: UNUserNotificationCenter requestAuthorization completion
+    // never fires while the system prompt is pending (main stays idle). Detox
+    // launchApp permissions uses applesimutils so messaging e2e requestPermission
+    // can settle without a human tap. Android ignores this key.
+    if (device.getPlatform() === 'ios') {
+      launchConfig.permissions = { notifications: 'YES' };
+    }
+    await Promise.race([
+      device.launchApp(launchConfig),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const err = new Error(
+            `[rnfb-e2e] launchApp timed out after ${effectiveTimeout}ms — check sim-app.log for ` +
+              `[rnfb-lifecycle] packager-probe / RCTJavaScriptDidFailToLoad and Detox waitForActive`,
+          );
+          err.retryableLaunchFailure = true;
+          reject(err);
+        }, effectiveTimeout);
+      }),
+    ]);
+    console.log('[rnfb-e2e] launchApp complete');
+    logLaunchInstallState('after-launch-success');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function postJetControl(path, body) {
+  const url = `http://127.0.0.1:${jetControlPort()}${path}`;
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!response.ok) {
+      console.warn(`[rnfb-e2e] jet-control POST ${path} status=${response.status}`);
+    }
+  } catch (err) {
+    console.warn(`[rnfb-e2e] jet-control POST ${path} failed: ${err?.message || err}`);
+  }
+}
+
+function logOrchestrateState(state) {
+  console.log(`[rnfb-e2e] orchestrate-state=${state} ts=${new Date().toISOString()}`);
+  postJetControl('/orchestrate-state', { phase: state });
+}
+
+async function signalJetLaunchReady() {
+  console.log('[rnfb-e2e] signaling Jet launch-ready (permit test run)');
+  await postJetControl('/launch-ready', {});
+}
+
+function killSpawnedProcessTree(proc) {
+  if (!proc?.pid) {
+    return;
+  }
+  const killDescendants = pid => {
+    try {
+      const kids = execSync(`pgrep -P ${pid}`, { encoding: 'utf8' })
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+      for (const child of kids) {
+        killDescendants(child);
+        try {
+          process.kill(Number(child), 'SIGKILL');
+        } catch (_) {
+          // already gone
+        }
+      }
+    } catch (_) {
+      // no children
+    }
+  };
+  killDescendants(String(proc.pid));
+  try {
+    proc.kill('SIGKILL');
+  } catch (_) {
+    // already gone
+  }
+}
+
+function dumpAwaitExitStallDiagnostics(err, jetSession) {
+  const jetOutput = String(err?.jetOutput || jetSession?.output || '');
+  const hasMochaTitle = /Jet tests on |^\s*\d+\)\s/m.test(jetOutput);
+  console.error(
+    `[rnfb-e2e] stall-diagnostics jetOutputBytes=${jetOutput.length} mochaTitleSeen=${hasMochaTitle}`,
+  );
+  console.error(`[rnfb-e2e] stall-diagnostics jetOutputTail:\n${jetOutput.slice(-4000)}`);
+
+  // Best-effort TCP snapshot on CI macOS (Jet :8090, control :8091, Metro).
+  const ports = [jetRemotePort(), jetControlPort(), metroPortForHost()];
+  for (const port of ports) {
+    try {
+      const lsof = execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN,ESTABLISHED 2>/dev/null || true`, {
+        encoding: 'utf8',
+        timeout: 5000,
+      }).trim();
+      console.error(
+        `[rnfb-e2e] stall-diagnostics lsof :${port}\n${lsof || '(no LISTEN/ESTABLISHED)'}`,
+      );
+    } catch (lsofErr) {
+      console.error(
+        `[rnfb-e2e] stall-diagnostics lsof :${port} failed: ${lsofErr?.message || lsofErr}`,
+      );
+    }
+  }
+}
+
+async function awaitJetExitWithStallGuard(jetSession, stallMs = jetAwaitExitStallTimeoutMs()) {
+  let stallTimer;
+  const stallPromise = new Promise((_, reject) => {
+    stallTimer = setTimeout(() => {
+      const err = new Error(
+        `[rnfb-e2e] Jet awaiting-jet-exit stalled ${stallMs}ms after launch-ready — aborting cell`,
+      );
+      err.jetOutput = jetSession.output;
+      // Attempt 2 + iOS sim reboot via isRetryableE2eFailure / retryableAtJetLevel.
+      err.retryableAtJetLevel = true;
+      reject(err);
+    }, stallMs);
+  });
+  try {
+    return await Promise.race([jetSession.exitPromise, stallPromise]);
+  } catch (err) {
+    const isAwaitExitStall = /awaiting-jet-exit stalled/.test(err?.message || '');
+    if (isAwaitExitStall) {
+      // Surface in detox-step.log even when Jest wraps the throw as "Jet tests failed!".
+      console.error(err.message);
+      dumpAwaitExitStallDiagnostics(err, jetSession);
+    }
+    // ignoreExit during kill so outer Promise.race keeps this err (retryable stall)
+    // instead of a fresh "Jet tests failed!" from exitPromise.
+    await jetSession.killIgnoringExit(isAwaitExitStall ? 'stall' : 'launch-retry');
+    if (!err.jetOutput) {
+      err.jetOutput = jetSession.output;
+    }
+    throw err;
+  } finally {
+    if (stallTimer) {
+      clearTimeout(stallTimer);
+    }
+  }
+}
+
+async function killJetForLaunchRetry(jetProcess, reason = 'launch-retry') {
+  if (!jetProcess || jetProcess.killed) {
+    return;
+  }
+
+  const fromStall = reason === 'stall';
+  logOrchestrateState(fromStall ? 'stall-kill-jet' : 'launch-retry-kill-jet');
+  console.warn(
+    fromStall
+      ? '[rnfb-e2e] stall-kill: killing Jet after await-exit stall'
+      : '[rnfb-e2e] launch-retry: killing Jet before terminateApp/reboot',
+  );
+  jetProcess.kill('SIGTERM');
+  await sleep(500);
+  killSpawnedProcessTree(jetProcess);
+
+  try {
+    await ensureTcpPortClosed(
+      jetRemotePort(),
+      fromStall ? 'stall-kill' : 'launch-retry',
+      KILL_JET_FOR_LAUNCH_RETRY_TIMEOUT_MS,
+    );
+  } catch (err) {
+    console.warn(
+      `[rnfb-e2e] ${fromStall ? 'stall-kill' : 'launch-retry'}: Jet port still open after kill: ${err?.message || err}`,
+    );
+  }
+}
+
+async function launchAppWithRetry(launchArgs, { testsDir, onBeforeRelaunch } = {}) {
+  const liveMetro = usesLiveMetro();
+  let lastLaunchFailure;
+
+  for (let launchAttempt = 1; launchAttempt <= LAUNCH_APP_MAX_ATTEMPTS; launchAttempt++) {
+    try {
+      if (launchAttempt > 1) {
+        console.warn(
+          `[rnfb-e2e] Retrying launchApp after launch failure (attempt ${launchAttempt}/${LAUNCH_APP_MAX_ATTEMPTS}) liveMetro=${liveMetro}`,
+        );
+        if (
+          detoxPlatformKey() === 'android' &&
+          shouldColdBootAndroidOnLaunchRetry(lastLaunchFailure)
+        ) {
+          console.warn(
+            '[rnfb-e2e] Android device-side launch failure — cold booting emulator before relaunch',
+          );
+          await coldBootAndroidEmulator();
+          await waitForAndroidEmulatorReady();
+        }
+        if (onBeforeRelaunch) {
+          await onBeforeRelaunch();
+        }
+        const terminateMs = await terminateAppWithTiming(`retry-${launchAttempt}`);
+        if (terminateMs >= SLOW_TERMINATE_MS && testsDir && process.platform === 'darwin') {
+          console.warn(
+            `[rnfb-e2e] slow terminate (${terminateMs}ms >= ${SLOW_TERMINATE_MS}ms) — rebooting simulator before relaunch`,
+          );
+          await rebootIosSimulator(testsDir);
+        }
+        if (liveMetro) {
+          await waitForLiveMetro(metroPortForHost());
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      await launchAppWithTimeout(launchArgs, {
+        deleteApp: launchAttempt === 1,
+      });
+      return;
+    } catch (err) {
+      lastLaunchFailure = err;
+      console.warn(`[rnfb-e2e] launchApp failure reason=${err?.message || err}`);
+      logLaunchInstallState(`after-launch-failure attempt=${launchAttempt}`);
+      const innerRetryable =
+        launchAttempt < LAUNCH_APP_MAX_ATTEMPTS && isRetryableLaunchFailure(err);
+      if (!innerRetryable) {
+        err.retryableAtJetLevel = isRetryableLaunchFailure(err);
+        throw err;
+      }
+    }
+  }
+}
+
+function createJetSession(jetArgs, testsDir) {
+  let output = '';
+  let jetProcess;
+  let ignoreExit = false;
+  let resolveExit;
+  let rejectExit;
+
+  const exitPromise = new Promise((resolve, reject) => {
+    resolveExit = resolve;
+    rejectExit = reject;
+  });
+
+  const bindProcess = proc => {
+    jetProcess = proc;
+    proc.stdout.on('data', chunk => {
+      const text = chunk.toString();
+      output += text;
+      process.stdout.write(text);
+    });
+    proc.stderr.on('data', chunk => {
+      const text = chunk.toString();
+      output += text;
+      process.stderr.write(text);
+    });
+    proc.on('error', err => {
+      if (ignoreExit) {
+        console.warn(`[rnfb-e2e] ignoring Jet error during launch-retry: ${err?.message || err}`);
+        return;
+      }
+      err.jetOutput = output;
+      rejectExit(err);
+    });
+    proc.on('close', code => {
+      if (ignoreExit) {
+        console.warn(`[rnfb-e2e] ignoring Jet exit code=${code} during launch-retry`);
+        return;
+      }
+      if (code !== 0) {
+        const err = new Error('Jet tests failed!');
+        err.jetOutput = output;
+        err.jetExitCode = code;
+        rejectExit(err);
+        return;
+      }
+      resolveExit({ output });
+    });
+  };
+
+  const spawnJet = () => {
+    const jp = jetRemotePort();
+    const mp = metroPortForHost();
+    const jcp = jetControlPort();
+    const proc = spawn('yarn', jetArgs, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true,
+      cwd: testsDir,
+      env: {
+        ...process.env,
+        RNFB_JET_DEFER_RUN: '1',
+        JET_REMOTE_PORT: String(jp),
+        JET_METRO_PORT: String(mp),
+        RCT_METRO_PORT: String(mp),
+        RNFB_JET_CONTROL_PORT: String(jcp),
+      },
+    });
+    bindProcess(proc);
+    return proc;
+  };
+
+  spawnJet();
+
+  return {
+    get process() {
+      return jetProcess;
+    },
+    get output() {
+      return output;
+    },
+    exitPromise,
+    /**
+     * Kill Jet with ignoreExit held so exitPromise does not reject and steal an
+     * outer Promise.race from a retryable caller error (await-exit stall).
+     * Leaves ignoreExit true — session is abandoned or respawned next.
+     */
+    async killIgnoringExit(reason = 'launch-retry') {
+      await killJetIgnoringExit({
+        setIgnoreExit: value => {
+          ignoreExit = value;
+        },
+        kill: () => killJetForLaunchRetry(jetProcess, reason),
+      });
+    },
+    async respawnAfterLaunchRetry() {
+      try {
+        await killJetIgnoringExit({
+          setIgnoreExit: value => {
+            ignoreExit = value;
+          },
+          kill: () => killJetForLaunchRetry(jetProcess),
+        });
+        output += '\n[rnfb-e2e] --- jet respawn after launch retry ---\n';
+        spawnJet();
+        await waitForTcpPort(jetRemotePort());
+        logOrchestrateState('launch-retry-jet-respawned');
+      } finally {
+        ignoreExit = false;
+      }
+    },
+  };
+}
+
+async function runJetE2eAttempt(attempt) {
+  cachedUsesLiveMetro = undefined;
+  cacheUsesLiveMetro();
+
+  const platform = detoxPlatformKey();
+  const testsDir = path.resolve(__dirname, '..');
+  const jp = jetRemotePort();
+  const mp = metroPortForHost();
+  console.log(
+    `[rnfb-e2e] runJetE2eAttempt platform=${platform} jet=${jp} metro=${mp} androidSerial=${resolveAndroidSerial()} detoxConfig=${resolveDetoxConfigurationName() || 'n/a'}`,
+  );
+  const jetArgs =
+    process.platform === 'win32'
+      ? ['jet', `--target=${platform}`, '-P', String(jp), '-M', String(mp)]
+      : ['jet', `--target=${platform}`, '--coverage', '-P', String(jp), '-M', String(mp)];
+
+  if (platform === 'android') {
+    await ensureAndroidJetHostClear(`jet-attempt-${attempt}`);
+  }
+
+  const jetSession = createJetSession(jetArgs, testsDir);
+
+  const orchestrate = async () => {
+    logOrchestrateState('jet-spawned');
+    console.log(`[rnfb-e2e] Jet attempt ${attempt}: waiting for port ${jetRemotePort()}`);
+    logOrchestrateState('port-wait');
+    await waitForTcpPort(jetRemotePort());
+    if (usesLiveMetro()) {
+      console.log(
+        `[rnfb-e2e] Jet attempt ${attempt}: waiting for Metro on port ${metroPortForHost()}`,
+      );
+      await waitForLiveMetro(metroPortForHost());
+    } else {
+      console.log(
+        `[rnfb-e2e] Jet attempt ${attempt}: skipping Metro wait (configuration=${resolveDetoxConfigurationName() || 'unknown'}, binary=${resolveAppBinaryPath() || 'unknown'})`,
+      );
+    }
+    console.log(`[rnfb-e2e] Jet attempt ${attempt}: launching app`);
+    logOrchestrateState('launch-pending');
+    await launchAppWithRetry(
+      {
+        detoxURLBlacklistRegex: `.*`,
+        // Detox Android LaunchArgs.shouldDisableSynchronization() equals "0"
+        // (not "NO"). "NO" still registers Fabric idling resources, which throw
+        // `ReactContext is null!` if RN is not ready yet.
+        detoxEnableSynchronization: '0',
+      },
+      {
+        testsDir,
+        onBeforeRelaunch: async () => {
+          await jetSession.respawnAfterLaunchRetry();
+        },
+      },
+    );
+    logOrchestrateState('launch-ok');
+    await signalJetLaunchReady();
+    logOrchestrateState('tests-run-permitted');
+  };
+
+  const orchestratePromise = orchestrate();
+  lastJetAttemptContext = { jetProcess: jetSession.process, orchestratePromise };
+
+  return Promise.race([
+    orchestratePromise
+      .then(() => {
+        logOrchestrateState('awaiting-jet-exit');
+        return awaitJetExitWithStallGuard(jetSession);
+      })
+      .catch(async err => {
+        logOrchestrateState('orchestrate-failed');
+        await killJetForLaunchRetry(jetSession.process);
+        err.jetOutput = jetSession.output;
+        throw err;
+      }),
+    jetSession.exitPromise.catch(err => {
+      logOrchestrateState('jet-exited');
+      err.jetOutput = jetSession.output;
+      throw err;
+    }),
+  ]);
+}
+
+describe('Jet Tests', function () {
+  jest.retryTimes(0, { logErrorsBeforeRetry: true });
+
+  it('runs all tests', async function () {
+    const platform = detoxPlatformKey();
+    const deviceId = detox.device?.id ?? device?.id;
+    const testsDir = path.resolve(__dirname, '..');
+
+    cacheUsesLiveMetro();
+
+    let lastFailure;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        if (attempt === 1 && platform === 'android') {
+          console.warn('[rnfb-e2e] Waiting for Android emulator ready before first Jet attempt');
+          await waitForAndroidEmulatorReady();
+        }
+
+        if (attempt > 1) {
+          const lastOutput = lastFailure?.jetOutput || '';
+          if (isRetryableJetDisconnect(lastOutput)) {
+            console.warn('[rnfb-e2e] Retrying after transient Jet WS disconnect (1006/1001)');
+          } else if (isRetryableJetSessionFailure(lastOutput)) {
+            if (JET_PROTOCOL_ERROR_RE.test(lastOutput)) {
+              console.warn('[rnfb-e2e] Retrying after Jet protocol error (JSON/WS desync)');
+            } else if (JET_NO_CLIENT_CONNECTED_RE.test(lastOutput)) {
+              console.warn(
+                '[rnfb-e2e] Retrying after Jet reconnect send race (No client connected)',
+              );
+            } else if (isJetReconnectDesyncFailure(lastOutput)) {
+              console.warn(
+                '[rnfb-e2e] Retrying after Jet reconnect desync (suite re-entry / coverage lost / server stopped)',
+              );
+            } else {
+              console.warn(
+                '[rnfb-e2e] Retrying after Jet session desync (coverage teardown / server not running)',
+              );
+            }
+          } else if (isRetryableLaunchFailure(lastFailure)) {
+            console.warn('[rnfb-e2e] Retrying after launch failure (Metro/bundle/FrontBoard)');
+          } else if (isRetryableCloudQuotaFailure(lastOutput)) {
+            console.warn(
+              `[rnfb-e2e] Retrying after cloud quota pressure; cooling down ${CLOUD_QUOTA_RETRY_COOLDOWN_MS}ms`,
+            );
+            logCloudPressureAnalysisPointer('jet-retry');
+            await sleep(CLOUD_QUOTA_RETRY_COOLDOWN_MS);
+          }
+          await drainJetAttempt(platform);
+          if (platform === 'ios' && process.platform === 'darwin') {
+            await rebootIosSimulator(testsDir);
+          } else if (platform === 'android') {
+            if (shouldColdBootAndroidOnLaunchRetry(lastFailure)) {
+              console.warn('[rnfb-e2e] Android device-side launch failure — cold booting emulator');
+              await coldBootAndroidEmulator();
+              await waitForAndroidEmulatorReady();
+            } else if (isMetroWaitFailure(lastFailure) && usesLiveMetro()) {
+              console.warn(
+                '[rnfb-e2e] Metro wait failure — waiting for Metro again (no Android cold boot)',
+              );
+              await waitForLiveMetro();
+            } else {
+              console.warn(
+                '[rnfb-e2e] Android retry without cold boot (not a device-side emulator fault)',
+              );
+            }
+          } else {
+            try {
+              await device.terminateApp();
+            } catch (_) {
+              // No-op
+            }
+          }
+        }
+
+        await runJetE2eAttempt(attempt);
+        break;
+      } catch (err) {
+        lastFailure = err;
+        logRetryEligibility(err, attempt);
+        if (isRetryableCloudQuotaFailure(err?.jetOutput || '')) {
+          await recordE2eCloudMetricFromHost({
+            category: 'cloud-quota',
+            event: 'jet-failure',
+            attempt,
+            error: String(err?.message || err),
+            metadata: {
+              jetExitCode: err?.jetExitCode ?? null,
+            },
+          });
+          logCloudPressureAnalysisPointer('jet-failure-recorded');
+        }
+        const retryable = attempt === 1 && isRetryableE2eFailure(err);
+        console.warn(
+          `[rnfb-e2e] Jet attempt ${attempt} failed (retryable=${retryable}, exit=${err.jetExitCode ?? 'n/a'})`,
+        );
+        if (!retryable) {
+          throw err;
+        }
+      }
+    }
+
+    if (platform === 'ios' && process.platform === 'darwin') {
+      try {
+        pullIosCoverage(deviceId, { testsDir });
+      } catch (e) {
+        throw new Error(`Failed to download native coverage data: ${e.message}`);
+      }
+    } else if (platform === 'android') {
+      const pulled = await pullAndroidCoverageWithRetry(deviceId, {
+        softFail: true,
+        testsDir,
+        retries: 5,
+        intervalMs: 1000,
+      });
+      if (!pulled) {
+        console.warn('[native-coverage] Android .ec not pulled on Jet close; post-e2e will retry');
+      }
+    }
+
+    if (platform === 'ios' || platform === 'android') {
+      try {
+        pullJsCoverage(platform, deviceId);
+      } catch (e) {
+        throw new Error(`Failed to download JS coverage data: ${e.message}`);
+      }
+    }
+  });
+
+  afterAll(async function () {
+    console.log(' ✨ Tests Complete ✨ ');
+    try {
+      await device.terminateApp();
+    } catch (_) {
+      // No-op
+    }
+  });
+});

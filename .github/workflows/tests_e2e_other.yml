@@ -1,0 +1,399 @@
+name: Testing E2E Other
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Number of iterations to run. Default 1. Max 256.'
+        required: true
+        default: 1
+        type: number
+  pull_request:
+    branches:
+      - '**'
+    paths-ignore:
+      - 'docs/**'
+      - 'website/**'
+      - '.spellcheck.dict.txt'
+      - '**/*.md'
+
+  push:
+    branches:
+      - main
+      - release-v*
+    paths-ignore:
+      - 'docs/**'
+      - 'website/**'
+      - '.spellcheck.dict.txt'
+      - '**/*.md'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # We want to generate our matrix dynamically
+  # Initial job generates the matrix as a JSON, and following job will use deserialize and use the result
+  matrix_prep:
+    # Do not run the scheduled jobs on forks
+    if: (github.event_name == 'schedule' && github.repository == 'invertase/react-native-firebase') || (github.event_name != 'schedule')
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.result }}
+    steps:
+      - id: build-matrix
+        # https://github.com/actions/github-script/releases
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            // by default, we will run one iteration
+            let iterationArray = [0]
+
+            // workflow dispatch will be a drop-down of different options
+            if (context.eventName === "workflow_dispatch") {
+              const inputs = ${{ toJSON(inputs) }}
+              console.log('inputs is: ' + JSON.stringify(inputs))
+
+              const iterationInput = inputs.iterations
+              console.log('iterations input is: ' + iterationInput)
+              // this will expand for example with input 5 => [0, 1, 2, 3, 4]
+              iterationArray = []
+              for (let i = 0; i < iterationInput; i++) {
+                iterationArray.push(i);
+              }
+              console.log('iterationArray is: ' + iterationArray)
+            }
+
+            // If we are running on a schedule it's our periodic passive scan for flakes
+            // Goal is to run enough iterations on all systems that we have confidence there are no flakes
+            if (context.eventName === "schedule") {
+              const iterationCount = 15
+              for (let i = 0; i < iterationCount; i++) {
+                iterationArray.push(i);
+              }
+            }
+
+            return {
+              "iteration": iterationArray
+            }
+      - name: Debug Output
+        run: echo "${{ steps.build-matrix.outputs.result }}"
+
+  # This uses the matrix generated from the matrix-prep stage
+  # it will run unit tests on whatever OS combinations are desired
+  other:
+    name: Other (${{ matrix.iteration }})
+    runs-on: xcode-27
+    needs: matrix_prep
+    timeout-minutes: 100
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      NX_NO_CLOUD: true
+      NX_CACHE_DIRECTORY: .nx/cache
+      NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
+      # Xcode 27+ default toolchain (MetalToolchain cryptex); pin for async-storage Swift compat.
+      # https://github.com/actions/runner-images/issues/13135
+      TOOLCHAINS: com.apple.dt.toolchain.XcodeDefault
+      XCODE_VERSION: '27.0'
+      RNFB_CI_REQUIRE_IOS_SIM_RUNTIME: '0'
+      CCACHE_SLOPPINESS: clang_index_store,file_stat_matches,include_file_ctime,include_file_mtime,ivfsoverlay,pch_defines,modules,system_headers,time_macros
+      CCACHE_FILECLONE: true
+      CCACHE_DEPEND: true
+      CCACHE_INODECACHE: true
+      CCACHE_LIMIT_MULTIPLE: 0.95
+    strategy:
+      fail-fast: false
+      matrix: ${{fromJson(needs.matrix_prep.outputs.matrix)}}
+    steps:
+      - name: Setup Environment for Screen Recording
+        # https://github.com/guidepup/setup-action/releases
+        uses: guidepup/setup-action@5d19b1151e972898cae0f0cc44e239127953bd90 # v0.21.0
+        continue-on-error: true
+        with:
+          record: true
+
+      - name: Upload Screen Recording Environment Setup
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: screenrecording-setup-${{ matrix.iteration }}.mov
+          path: ./recordings/
+
+      # https://github.com/actions/setup-node/releases
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Configure JDK
+        # https://github.com/actions/setup-java/releases
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # https://github.com/maxim-lobanov/setup-xcode/releases
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      # https://github.com/actions/checkout/releases
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 50
+
+      - name: Configure Apple CI (Xcode 27)
+        run: bash .github/workflows/scripts/configure-apple-ci.sh
+
+      # Set path variables needed for caches
+      - name: Set workflow variables
+        id: workflow-variables
+        run: |
+          echo "metro-cache=$HOME/.metro" >> $GITHUB_OUTPUT
+          echo "xcode-version=$(xcodebuild -version|tail -1|cut -f3 -d' ')" >> $GITHUB_OUTPUT
+
+      - name: Yarn Cache Restore
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: yarn-cache
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-macos-yarn-v1-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-macos-yarn-v1
+
+      # https://github.com/hendrikmuhs/ccache-action/releases
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        name: Xcode Compile Cache
+        with:
+          # Sticky content-hash key (append-timestamp: false). Native sources live under packages/*/ios (no packages/*/macos tree).
+          key: ${{ runner.os }}-e2e-macos-v3-xcode27-${{ hashFiles('yarn.lock', 'packages/*/*.podspec', 'packages/*/ios/**', 'tests-macos/macos/Podfile.lock') }}
+          save: "${{ github.ref == 'refs/heads/main' && matrix.iteration == 0 }}"
+          append-timestamp: false
+          create-symlink: true
+          max-size: 1500M
+
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Restore
+        id: nx-cache
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+          restore-keys: ${{ runner.os }}-nx-v1
+      - name: Setup Ruby
+        # https://github.com/ruby/setup-ruby/releases
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: 3
+
+      # Run frozen bundle install BEFORE yarn so CI remains supply-chain
+      # attack-hardened via the freeze; after yarn, postinstallDev → yarn
+      # ruby:install is a no-op (bundle check succeeds).
+      - name: Bundle install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: BUNDLE_FROZEN=true bundle install
+
+      - name: Yarn Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: DETOX_DISABLE_POSTINSTALL=1 yarn
+
+      - name: Pods Cache Restore
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: pods-cache
+        continue-on-error: true
+        with:
+          path: tests-macos/macos/Pods
+          key: ${{ runner.os }}-macos-pods-v4-${{ hashFiles('tests-macos/macos/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-macos-pods-v4
+
+      - name: Pod Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 20
+          retry_wait_seconds: 30
+          max_attempts: 3
+          command: yarn tests:macos:pod:install
+
+      - name: Resolve firebase-tools version
+        id: firebase-tools
+        run: |
+          VER=$(node -p "require('./node_modules/firebase-tools/package.json').version")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Firestore Emulator Cache Restore
+        # Restore-only; Android e2e saves firebase-emulators-v2 on main. See okf-bundle/ci-workflows/index.md.
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: firestore-emulator-cache
+        continue-on-error: true
+        with:
+          enableCrossOsArchive: true
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-v2-${{ steps.firebase-tools.outputs.version }}
+          restore-keys: firebase-emulators-v2-
+
+      - name: Start Firestore Emulator
+        run: yarn tests:emulator:start-ci
+
+      # Vendored Homebrew formulae — pin/update: okf-bundle/ci-workflows/ios.md#pinned-homebrew-utilities
+      - name: Install brew utilities
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 5
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: bash .github/workflows/scripts/install-homebrew-rnfb.sh xcbeautify
+
+      - name: Build macos App
+        run: |
+          ccache -s
+          export SKIP_BUNDLING=1
+          export RCT_NO_LAUNCH_PACKAGER=1
+          set -o pipefail
+          echo $PATH
+          which clang
+          yarn tests:macos:build
+          ccache -s
+        shell: bash
+
+      - name: Metro Bundler Cache Restore
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: metro-bundler-cache
+        continue-on-error: true
+        with:
+          path: ${{ steps.workflow-variables.outputs.metro-cache }}
+          # Sticky content-hash key (no run_id). Shared tests/ + packages inputs, plus
+          # tests-macos Metro entry files (macOS Jet projectRoot is tests-macos/).
+          key: ${{ runner.os }}-macos-metro-v2-${{ hashFiles('yarn.lock', 'tests/package.json', 'tests/metro.config.js', 'tests/index.js', 'tests/app.js', 'tests/react-native.config.js', 'tests-macos/package.json', 'tests-macos/metro.config.js', 'tests-macos/index.js', 'tests-macos/react-native.config.js', 'packages/*/package.json', 'packages/*/lib/**') }}
+          restore-keys: ${{ runner.os }}-macos-metro-v2-
+
+      - name: Pre-fetch Javascript bundle
+        run: |
+          nohup sh -c "yarn tests:macos:packager:jet-ci > metro.log 2>&1 &"
+          printf 'Waiting for packager to come online'
+          until curl --output /dev/null --silent --head --fail http://localhost:8081/status; do
+            printf '.'
+            sleep 2
+          done
+          echo "Packager is online! Preparing bundle..."
+          curl --output /dev/null --silent --head --fail "http://127.0.0.1:8081/index.bundle?platform=macos&dev=true&lazy=true&minify=false&inlineSourceMap=true&modulesOnly=false&runModule=true&app=org.reactjs.native.io-invertase-testing"
+          echo "...javascript bundle ready"
+
+      - name: Start Screen Recording and System Logging
+        continue-on-error: true
+        run: |
+          nohup sh -c "sleep 314159265 | screencapture -v -C -k -T0 -g screenrecording.mov > screenrecording.log 2>&1 &"
+          nohup sh -c "log stream --backtrace --color none --style syslog > syslog.log 2>&1 &"
+
+      - name: Jet Test
+        timeout-minutes: 20
+        run: yarn tests:macos:test-cover
+
+      # https://github.com/codecov/codecov-action/releases
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        continue-on-error: true
+        with:
+          files: coverage/lcov.info
+          flags: e2e-ts-macos
+          disable_search: true
+          verbose: true
+
+      - name: Stop Screen Recording and System Logging
+        continue-on-error: true
+        if: always()
+        run: |
+          killall -int screencapture
+          killall -int log
+
+      - name: Upload Metro Log
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: metro-${{ matrix.iteration }}_log
+          path: metro.log
+
+      - name: Upload Screen Recording
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: screenrecording-${{ matrix.iteration }}
+          path: screenrecording.*
+
+      - name: Upload System Log
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: syslog-${{ matrix.iteration }}
+          path: syslog.log
+
+      - name: Upload Firebase emulator script logs
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: emulator-scripts-logs-${{ matrix.iteration }}
+          path: .github/workflows/scripts/*.log
+
+      - name: Yarn Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ steps.yarn-cache.outputs.cache-primary-key }}
+
+      - name: Nx Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+
+      - name: Pods Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: tests-macos/macos/Pods
+          key: ${{ steps.pods-cache.outputs.cache-primary-key }}
+
+      - name: Metro Bundler Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main' && matrix.iteration == 0 && steps.metro-bundler-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        with:
+          path: ${{ steps.workflow-variables.outputs.metro-cache }}
+          key: ${{ steps.metro-bundler-cache.outputs.cache-primary-key }}

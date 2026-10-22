@@ -1,0 +1,142 @@
+import { ConfigPlugin, withAndroidManifest } from '@expo/config-plugins';
+import { ManifestApplication } from '@expo/config-plugins/build/android/Manifest';
+import { ExpoConfig } from '@expo/config-types';
+import { PluginConfigType } from '../pluginConfig';
+
+/**
+ * Determine whether a ManifestApplication has an attribute.
+ */
+const hasMetaData = (application: ManifestApplication, metaData: string) => {
+  return application['meta-data']?.some(item => item['$']['android:name'] === metaData);
+};
+
+/**
+ * Create `com.google.firebase.messaging.default_notification_icon` and `com.google.firebase.messaging.default_notification_color`
+ */
+export const withExpoPluginFirebaseNotification: ConfigPlugin<PluginConfigType | undefined> = (
+  config,
+  props,
+) => {
+  return withAndroidManifest(config, async config => {
+    // Add NS `xmlns:tools to handle boundary conditions.
+    config.modResults.manifest.$ = {
+      ...config.modResults.manifest.$,
+      'xmlns:tools': 'http://schemas.android.com/tools',
+    };
+
+    const application = config.modResults.manifest.application![0];
+    setFireBaseMessagingAndroidManifest(config, application, props);
+    return config;
+  });
+};
+
+// Helper function to get notification icon and color from plugin props, expo-notifications, or config.notification
+const getNotificationConfig = (config: ExpoConfig, props?: PluginConfigType) => {
+  // 1. Check props passed directly to @react-native-firebase/messaging plugin
+  if (props?.android?.notificationIcon) {
+    return {
+      icon: props.android.notificationIcon,
+      color: props.android.notificationColor,
+    };
+  }
+
+  // 2. Check expo-notifications plugin
+  if (config.plugins) {
+    const expoNotificationsPlugin = config.plugins.find(
+      plugin => Array.isArray(plugin) && plugin[0] === 'expo-notifications',
+    );
+
+    if (expoNotificationsPlugin && Array.isArray(expoNotificationsPlugin)) {
+      const pluginConfig = expoNotificationsPlugin[1];
+      if (pluginConfig && typeof pluginConfig === 'object') {
+        return {
+          icon: pluginConfig.icon,
+          color: pluginConfig.color,
+        };
+      }
+    }
+  }
+
+  /**
+   * @deprecated
+   * Get notification config from config.notification
+   * Will be removed in the future as `expo-notifications` plugin is the recommended way to configure notifications.
+   */
+  // @ts-ignore - config.notification deprecated in Expo 54 / removed in Expo 55+, but still useful for people
+  if (config.notification) {
+    return {
+      // @ts-ignore - config.notification deprecated in Expo 54 / removed in Expo 55+, but still useful for people
+      icon: config.notification.icon,
+      // @ts-ignore - config.notification deprecated in Expo 54 / removed in Expo 55+, but still useful for people
+      color: config.notification.color,
+    };
+  }
+
+  return { icon: undefined, color: undefined };
+};
+
+export function setFireBaseMessagingAndroidManifest(
+  config: ExpoConfig,
+  application: ManifestApplication,
+  props?: PluginConfigType,
+) {
+  const { icon, color } = getNotificationConfig(config, props);
+  if (!icon) {
+    // This warning is important because the notification icon can only use pure white on Android. By default, the system uses the app icon as the notification icon, but the app icon is usually not pure white, so you need to set the notification icon
+    // eslint-disable-next-line no-console
+    console.warn(
+      'For Android 8.0 and above, it is necessary to set the notification icon to ensure correct display. Otherwise, the notification will not show the correct icon. For more information, visit https://docs.expo.dev/versions/latest/config/app/#notification',
+    );
+  }
+
+  // Defensive code
+  application['meta-data'] ??= [];
+
+  const metaData = application['meta-data'];
+
+  if (
+    icon &&
+    !hasMetaData(application, 'com.google.firebase.messaging.default_notification_icon')
+  ) {
+    // Expo will automatically create '@drawable/notification_icon' resource if you specify config.notification.icon.
+    metaData.push({
+      $: {
+        'android:name': 'com.google.firebase.messaging.default_notification_icon',
+        'android:resource': '@drawable/notification_icon',
+      },
+    });
+  }
+
+  if (
+    color &&
+    !hasMetaData(application, 'com.google.firebase.messaging.default_notification_color')
+  ) {
+    metaData.push({
+      $: {
+        'android:name': 'com.google.firebase.messaging.default_notification_color',
+        'android:resource': '@color/notification_icon_color',
+        // @react-native-firebase/messaging will automatically configure the notification color from the 'firebase.json' file, setting 'tools:replace' = 'android:resource' to overwrite it.
+        // @ts-ignore
+        'tools:replace': 'android:resource',
+      },
+    });
+  }
+
+  if (
+    props?.installationIdEnabled &&
+    !hasMetaData(application, 'firebase_messaging_installation_id_enabled')
+  ) {
+    metaData.push({
+      $: {
+        'android:name': 'firebase_messaging_installation_id_enabled',
+        'android:value': 'true',
+        // Library AndroidManifest always emits this meta via placeholder (default false);
+        // tools:replace lets the app/Expo value win without a merger conflict.
+        // @ts-ignore
+        'tools:replace': 'android:value',
+      },
+    });
+  }
+
+  return application;
+}

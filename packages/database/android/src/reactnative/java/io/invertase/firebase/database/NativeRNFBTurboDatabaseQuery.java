@@ -1,0 +1,511 @@
+package io.invertase.firebase.database;
+
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+import static io.invertase.firebase.common.RCTConvertFirebase.readableMapToWritableMap;
+import static io.invertase.firebase.database.ReactNativeFirebaseDatabaseCommon.*;
+import static io.invertase.firebase.database.UniversalFirebaseDatabaseCommon.getDatabaseForApp;
+
+import androidx.annotation.CallSuper;
+import com.facebook.fbreact.specs.NativeRNFBTurboDatabaseQuerySpec;
+import com.facebook.react.bridge.*;
+import com.google.android.gms.tasks.Tasks;
+import com.google.firebase.database.*;
+import io.invertase.firebase.common.RNFBHandleCollisionException;
+import io.invertase.firebase.common.ReactNativeFirebaseEventEmitter;
+import io.invertase.firebase.common.ReactNativeFirebaseModule;
+import io.invertase.firebase.common.UniversalFirebasePreferences;
+import java.util.Objects;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+public class NativeRNFBTurboDatabaseQuery extends NativeRNFBTurboDatabaseQuerySpec {
+  private final DatabaseTurboModuleSupport turboSupport =
+      new DatabaseTurboModuleSupport("RNFBDatabaseQuery");
+  private final RNFBDatabaseQueryRegistry queryMap = new RNFBDatabaseQueryRegistry();
+
+  public NativeRNFBTurboDatabaseQuery(ReactApplicationContext reactContext) {
+    super(reactContext);
+  }
+
+  @Override
+  @CallSuper
+  public void invalidate() {
+    queryMap.takeAllAndRemove();
+
+    turboSupport.invalidate();
+    super.invalidate();
+  }
+
+  private ReactNativeFirebaseDatabaseQuery getDatabaseQueryInstance(
+      DatabaseReference reference, ReadableArray modifiers) {
+    return new ReactNativeFirebaseDatabaseQuery(reference, modifiers);
+  }
+
+  private ReactNativeFirebaseDatabaseQuery getDatabaseQueryInstance(
+      String key, DatabaseReference reference, ReadableArray modifiers) {
+    DatabaseQueryHandle cached = queryMap.get(key);
+
+    if (cached instanceof ReactNativeFirebaseDatabaseQuery) {
+      return (ReactNativeFirebaseDatabaseQuery) cached;
+    }
+
+    ReactNativeFirebaseDatabaseQuery databaseQuery =
+        new ReactNativeFirebaseDatabaseQuery(reference, modifiers);
+
+    try {
+      queryMap.put(key, databaseQuery);
+    } catch (RNFBHandleCollisionException collision) {
+      DatabaseQueryHandle winner = queryMap.get(key);
+      if (winner instanceof ReactNativeFirebaseDatabaseQuery) {
+        return (ReactNativeFirebaseDatabaseQuery) winner;
+      }
+    }
+    return databaseQuery;
+  }
+
+  private void addOnceValueEventListener(
+      ReactNativeFirebaseDatabaseQuery databaseQuery, Promise promise) {
+    ValueEventListener onceValueEventListener =
+        new ValueEventListener() {
+          @Override
+          public void onDataChange(@Nonnull DataSnapshot dataSnapshot) {
+            try {
+              Tasks.call(turboSupport.getExecutor(), () -> snapshotToMap(dataSnapshot))
+                  .addOnCompleteListener(
+                      task -> {
+                        if (task.isSuccessful()) {
+                          promise.resolve(task.getResult());
+                        } else {
+                          ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(
+                              promise, task.getException());
+                        }
+                      });
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+              ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(promise, e);
+            }
+          }
+
+          @Override
+          public void onCancelled(@Nonnull DatabaseError error) {
+            rejectPromiseDatabaseException(
+                promise,
+                new UniversalDatabaseException(
+                    error.getCode(), error.getMessage(), error.toException()));
+          }
+        };
+
+    databaseQuery.addSingleValueEventListener(onceValueEventListener);
+  }
+
+  private void addChildOnceEventListener(
+      String eventType, ReactNativeFirebaseDatabaseQuery databaseQuery, Promise promise) {
+    ChildEventListener childEventListener =
+        new ChildEventListener() {
+          @Override
+          public void onChildAdded(@Nonnull DataSnapshot dataSnapshot, String previousChildName) {
+            if ("child_added".equals(eventType)) {
+              databaseQuery.removeEventListener(this);
+              try {
+                Tasks.call(
+                        turboSupport.getExecutor(),
+                        () -> snapshotWithPreviousChildToMap(dataSnapshot, previousChildName))
+                    .addOnCompleteListener(
+                        task -> {
+                          if (task.isSuccessful()) {
+                            promise.resolve(task.getResult());
+                          } else {
+                            ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(
+                                promise, task.getException());
+                          }
+                        });
+              } catch (java.util.concurrent.RejectedExecutionException e) {
+                ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(promise, e);
+              }
+            }
+          }
+
+          @Override
+          public void onChildChanged(@Nonnull DataSnapshot dataSnapshot, String previousChildName) {
+            if ("child_changed".equals(eventType)) {
+              databaseQuery.removeEventListener(this);
+              try {
+                Tasks.call(
+                        turboSupport.getExecutor(),
+                        () -> snapshotWithPreviousChildToMap(dataSnapshot, previousChildName))
+                    .addOnCompleteListener(
+                        task -> {
+                          if (task.isSuccessful()) {
+                            promise.resolve(task.getResult());
+                          } else {
+                            ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(
+                                promise, task.getException());
+                          }
+                        });
+              } catch (java.util.concurrent.RejectedExecutionException e) {
+                ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(promise, e);
+              }
+            }
+          }
+
+          @Override
+          public void onChildRemoved(@Nonnull DataSnapshot dataSnapshot) {
+            if ("child_removed".equals(eventType)) {
+              databaseQuery.removeEventListener(this);
+              try {
+                Tasks.call(
+                        turboSupport.getExecutor(),
+                        () -> snapshotWithPreviousChildToMap(dataSnapshot, null))
+                    .addOnCompleteListener(
+                        task -> {
+                          if (task.isSuccessful()) {
+                            promise.resolve(task.getResult());
+                          } else {
+                            ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(
+                                promise, task.getException());
+                          }
+                        });
+              } catch (java.util.concurrent.RejectedExecutionException e) {
+                ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(promise, e);
+              }
+            }
+          }
+
+          @Override
+          public void onChildMoved(@Nonnull DataSnapshot dataSnapshot, String previousChildName) {
+            if ("child_moved".equals(eventType)) {
+              databaseQuery.removeEventListener(this);
+              try {
+                Tasks.call(
+                        turboSupport.getExecutor(),
+                        () -> snapshotWithPreviousChildToMap(dataSnapshot, previousChildName))
+                    .addOnCompleteListener(
+                        task -> {
+                          if (task.isSuccessful()) {
+                            promise.resolve(task.getResult());
+                          } else {
+                            ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(
+                                promise, task.getException());
+                          }
+                        });
+              } catch (java.util.concurrent.RejectedExecutionException e) {
+                ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(promise, e);
+              }
+            }
+          }
+
+          @Override
+          public void onCancelled(@Nonnull DatabaseError error) {
+            databaseQuery.removeEventListener(this);
+            rejectPromiseDatabaseException(
+                promise,
+                new UniversalDatabaseException(
+                    error.getCode(), error.getMessage(), error.toException()));
+          }
+        };
+
+    databaseQuery.addSingleChildEventListener(childEventListener);
+  }
+
+  private void addValueEventListener(
+      String key, ReactNativeFirebaseDatabaseQuery databaseQuery, ReadableMap registration) {
+    final String eventRegistrationKey = registration.getString("eventRegistrationKey");
+
+    if (!databaseQuery.hasEventListener(eventRegistrationKey)) {
+      ValueEventListener valueEventListener =
+          new ValueEventListener() {
+            @Override
+            public void onDataChange(@Nonnull DataSnapshot dataSnapshot) {
+              handleDatabaseEvent(key, "value", registration, dataSnapshot, null);
+            }
+
+            @Override
+            public void onCancelled(@Nonnull DatabaseError error) {
+              databaseQuery.removeEventListener(eventRegistrationKey);
+              handleDatabaseEventError(key, registration, error);
+            }
+          };
+
+      databaseQuery.addEventListener(eventRegistrationKey, valueEventListener);
+    }
+  }
+
+  private void addChildEventListener(
+      String key,
+      String eventType,
+      ReactNativeFirebaseDatabaseQuery databaseQuery,
+      ReadableMap registration) {
+    final String eventRegistrationKey = registration.getString("eventRegistrationKey");
+
+    if (!databaseQuery.hasEventListener(eventRegistrationKey)) {
+      ChildEventListener childEventListener =
+          new ChildEventListener() {
+            @Override
+            public void onChildAdded(@Nonnull DataSnapshot dataSnapshot, String previousChildName) {
+              if ("child_added".equals(eventType)) {
+                handleDatabaseEvent(
+                    key, "child_added", registration, dataSnapshot, previousChildName);
+              }
+            }
+
+            @Override
+            public void onChildChanged(
+                @Nonnull DataSnapshot dataSnapshot, String previousChildName) {
+              if ("child_changed".equals(eventType)) {
+                handleDatabaseEvent(
+                    key, "child_changed", registration, dataSnapshot, previousChildName);
+              }
+            }
+
+            @Override
+            public void onChildRemoved(@Nonnull DataSnapshot dataSnapshot) {
+              if ("child_removed".equals(eventType)) {
+                handleDatabaseEvent(key, "child_removed", registration, dataSnapshot, null);
+              }
+            }
+
+            @Override
+            public void onChildMoved(@Nonnull DataSnapshot dataSnapshot, String previousChildName) {
+              if ("child_moved".equals(eventType)) {
+                handleDatabaseEvent(
+                    key, "child_moved", registration, dataSnapshot, previousChildName);
+              }
+            }
+
+            @Override
+            public void onCancelled(@Nonnull DatabaseError error) {
+              databaseQuery.removeEventListener(eventRegistrationKey);
+              handleDatabaseEventError(key, registration, error);
+            }
+          };
+
+      databaseQuery.addEventListener(eventRegistrationKey, childEventListener);
+    }
+  }
+
+  private void handleDatabaseEvent(
+      final String key,
+      final String eventType,
+      final ReadableMap registration,
+      DataSnapshot dataSnapshot,
+      @Nullable String previousChildName) {
+    final String eventRegistrationKey = registration.getString("eventRegistrationKey");
+    try {
+      Tasks.call(
+              turboSupport.getTransactionalExecutor(eventRegistrationKey),
+              () -> {
+                if (eventType.equals("value")) {
+                  return snapshotToMap(dataSnapshot);
+                } else {
+                  return snapshotWithPreviousChildToMap(dataSnapshot, previousChildName);
+                }
+              })
+          .addOnCompleteListener(
+              turboSupport.getExecutor(),
+              task -> {
+                if (task.isSuccessful()) {
+                  WritableMap data = task.getResult();
+                  WritableMap event = Arguments.createMap();
+                  event.putMap("data", data);
+                  event.putString("key", key);
+                  event.putString("eventType", eventType);
+                  event.putMap("registration", readableMapToWritableMap(registration));
+
+                  ReactNativeFirebaseEventEmitter emitter =
+                      ReactNativeFirebaseEventEmitter.getSharedInstance();
+
+                  emitter.sendEvent(
+                      new ReactNativeFirebaseDatabaseEvent(
+                          ReactNativeFirebaseDatabaseEvent.EVENT_SYNC, event));
+                }
+              });
+    } catch (java.util.concurrent.RejectedExecutionException e) {
+      // Event arrived after module invalidation shut down an executor.
+    }
+  }
+
+  private void handleDatabaseEventError(String key, ReadableMap registration, DatabaseError error) {
+    WritableMap event = Arguments.createMap();
+    UniversalDatabaseException databaseException =
+        new UniversalDatabaseException(error.getCode(), error.getMessage(), error.toException());
+
+    WritableMap errorMap = Arguments.createMap();
+    errorMap.putString("code", databaseException.getCode());
+    errorMap.putString("message", databaseException.getMessage());
+
+    event.putString("key", key);
+    event.putMap("error", errorMap);
+    event.putMap("registration", readableMapToWritableMap(registration));
+
+    ReactNativeFirebaseEventEmitter emitter = ReactNativeFirebaseEventEmitter.getSharedInstance();
+
+    emitter.sendEvent(
+        new ReactNativeFirebaseDatabaseEvent(ReactNativeFirebaseDatabaseEvent.EVENT_SYNC, event));
+  }
+
+  @Override
+  public void once(
+      String app,
+      String dbURL,
+      String path,
+      ReadableArray modifiers,
+      String eventType,
+      Promise promise) {
+    DatabaseReference reference = getDatabaseForApp(app, dbURL).getReference(path);
+
+    if (eventType.equals("value")) {
+      addOnceValueEventListener(getDatabaseQueryInstance(reference, modifiers), promise);
+    } else {
+      addChildOnceEventListener(eventType, getDatabaseQueryInstance(reference, modifiers), promise);
+    }
+  }
+
+  // Static because the SDK keeps keepSynced registrations across a JS reload.
+  private static final RNFBDatabaseKeepSyncedRegistry keepSyncedRegistry =
+      new RNFBDatabaseKeepSyncedRegistry();
+
+  // reference.toString() is the full URL, so a null dbURL and the default URL give the same key.
+  private static String locationKey(String app, DatabaseReference reference) {
+    return app + "|" + reference;
+  }
+
+  private static final java.util.regex.Pattern PERMISSION_DENIED_REASON =
+      java.util.regex.Pattern.compile(
+          "permission.?denied", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+  /**
+   * Single request/response read backing modular get(). Offline, Query.get() waits for the
+   * connection, like once(). It uses once() instead when:
+   *
+   * <ul>
+   *   <li>disk persistence is on: Query.get() then resolves from disk after 3s, even online;
+   *   <li>RTDB debug logging is on: a get in flight when the socket drops is resent on reconnect
+   *       only because PersistentConnectionImpl.sendGet's early return sits inside {@code if
+   *       (logger.logsDebug())};
+   *   <li>the app keeps anything at this location synced (see RNFBDatabaseKeepSyncedRegistry).
+   * </ul>
+   */
+  @Override
+  public void get(String app, String dbURL, String path, ReadableArray modifiers, Promise promise) {
+    DatabaseReference reference = getDatabaseForApp(app, dbURL).getReference(path);
+    ReactNativeFirebaseDatabaseQuery databaseQuery = getDatabaseQueryInstance(reference, modifiers);
+
+    UniversalFirebasePreferences preferences = UniversalFirebasePreferences.getSharedInstance();
+    String location = locationKey(app, reference);
+    if (modifiers.size() > 0
+        || preferences.getBooleanValue(UniversalDatabaseStatics.DATABASE_PERSISTENCE_ENABLED, false)
+        || preferences.getBooleanValue(UniversalDatabaseStatics.DATABASE_LOGGING_ENABLED, false)
+        || !keepSyncedRegistry.beginNativeGet(location)) {
+      addOnceValueEventListener(databaseQuery, promise);
+      return;
+    }
+
+    databaseQuery
+        .query
+        .get()
+        .addOnCompleteListener(
+            getTask -> {
+              keepSyncedRegistry.endNativeGet(location);
+              if (!getTask.isSuccessful()) {
+                Exception exception = getTask.getException();
+                // Query.get() surfaces a server error as a plain Exception carrying only the
+                // reply's reason text. Map a denial to the error once() gives, so callers see the
+                // same code and DatabaseQuery._get need not re-ask the server.
+                if (exception != null
+                    && exception.getMessage() != null
+                    && PERMISSION_DENIED_REASON.matcher(exception.getMessage()).find()) {
+                  rejectPromiseDatabaseException(
+                      promise,
+                      new UniversalDatabaseException(
+                          DatabaseError.PERMISSION_DENIED, exception.getMessage(), exception));
+                  return;
+                }
+                ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(promise, exception);
+                return;
+              }
+              DataSnapshot dataSnapshot = getTask.getResult();
+              // Serialise off the main thread, as addOnceValueEventListener does.
+              try {
+                Tasks.call(turboSupport.getExecutor(), () -> snapshotToMap(dataSnapshot))
+                    .addOnCompleteListener(
+                        task -> {
+                          if (task.isSuccessful()) {
+                            promise.resolve(task.getResult());
+                          } else {
+                            ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(
+                                promise, task.getException());
+                          }
+                        });
+              } catch (java.util.concurrent.RejectedExecutionException e) {
+                ReactNativeFirebaseModule.rejectPromiseWithExceptionMap(promise, e);
+              }
+            });
+  }
+
+  @Override
+  public void on(String app, String dbURL, ReadableMap props) {
+    String key = props.getString("key");
+    ReadableArray modifiers = props.getArray("modifiers");
+    String path = Objects.requireNonNull(props.getString("path"));
+    String eventType = Objects.requireNonNull(props.getString("eventType"));
+    ReadableMap registration = Objects.requireNonNull(props.getMap("registration"));
+
+    DatabaseReference reference = getDatabaseForApp(app, dbURL).getReference(path);
+
+    if (eventType.equals("value")) {
+      addValueEventListener(key, getDatabaseQueryInstance(key, reference, modifiers), registration);
+    } else {
+      addChildEventListener(
+          key, eventType, getDatabaseQueryInstance(key, reference, modifiers), registration);
+    }
+  }
+
+  @Override
+  public void off(String queryKey, String eventRegistrationKey) {
+    DatabaseQueryHandle handle = queryMap.get(queryKey);
+
+    if (handle instanceof ReactNativeFirebaseDatabaseQuery) {
+      ReactNativeFirebaseDatabaseQuery databaseQuery = (ReactNativeFirebaseDatabaseQuery) handle;
+      databaseQuery.removeEventListener(eventRegistrationKey);
+      turboSupport.removeEventListeningExecutor(eventRegistrationKey);
+      queryMap.takeIfIdle(queryKey);
+    }
+  }
+
+  @Override
+  public void keepSynced(
+      String app,
+      String dbURL,
+      String key,
+      String path,
+      ReadableArray modifiers,
+      boolean enabled,
+      Promise promise) {
+    DatabaseReference reference = getDatabaseForApp(app, dbURL).getReference(path);
+    Query query = getDatabaseQueryInstance(key, reference, modifiers).query;
+    // Resolve only after the SDK apply runs (now, or after endNativeGet when deferred).
+    keepSyncedRegistry.keepSynced(
+        locationKey(app, reference),
+        key,
+        enabled,
+        () -> {
+          query.keepSynced(enabled);
+          promise.resolve(null);
+        });
+  }
+}

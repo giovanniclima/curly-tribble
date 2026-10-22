@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.packages.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "lib": ["ESNext", "DOM"],
+    "types": ["react-native", "node"]
+  },
+  "include": ["lib/**/*"],
+  "exclude": ["node_modules", "dist", "__tests__", "**/*.test.ts"]
+}

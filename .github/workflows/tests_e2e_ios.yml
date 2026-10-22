@@ -1,0 +1,739 @@
+name: Testing E2E iOS
+
+on:
+  workflow_call:
+    inputs:
+      record_screens:
+        description: 'Record host screencapture and simulator video artifacts'
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Number of iterations to run. Default 1. Max 122.'
+        required: true
+        default: 1
+        type: number
+      record_screens:
+        description: 'Record host screencapture and simulator video artifacts'
+        type: boolean
+        default: false
+  pull_request:
+    branches:
+      - '**'
+    paths-ignore:
+      - 'docs/**'
+      - 'website/**'
+      - '.spellcheck.dict.txt'
+      - '**/*.md'
+
+  push:
+    branches:
+      - main
+      - release-v*
+    paths-ignore:
+      - 'docs/**'
+      - 'website/**'
+      - '.spellcheck.dict.txt'
+      - '**/*.md'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # We want to generate our matrix dynamically
+  # Initial job generates the matrix as a JSON, and following job will use deserialize and use the result
+  matrix_prep:
+    # Do not run the scheduled jobs on forks
+    if: (github.event_name == 'schedule' && github.repository == 'invertase/react-native-firebase') || (github.event_name != 'schedule')
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.result }}
+    steps:
+      - id: build-matrix
+        # https://github.com/actions/github-script/releases
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            // by default, we will run one iteration
+            let iterationArray = [0]
+
+            // workflow dispatch will be a drop-down of different options
+            if (context.eventName === "workflow_dispatch") {
+              const inputs = ${{ toJSON(inputs) }}
+              console.log('inputs is: ' + JSON.stringify(inputs))
+
+              const iterationInput = inputs.iterations
+              console.log('iterations input is: ' + iterationInput)
+              // this will expand for example with input 5 => [0, 1, 2, 3, 4]
+              iterationArray = []
+              for (let i = 0; i < iterationInput; i++) {
+                iterationArray.push(i);
+              }
+              console.log('iterationArray is: ' + iterationArray)
+            }
+
+            // If we are running on a schedule it's our periodic passive scan for flakes
+            // Goal is to run enough iterations on all systems that we have confidence there are no flakes
+            if (context.eventName === "schedule") {
+              const iterationCount = 15
+              for (let i = 0; i < iterationCount; i++) {
+                iterationArray.push(i);
+              }
+            }
+
+            // we want to test debug and release - they generate different code
+            // Firebase Apple SDK 13+ is SPM-only (CocoaPods Firebase removed)
+            let buildmode = ['debug', 'release'];
+
+            return {
+              "iteration": iterationArray,
+              "buildmode": buildmode
+            }
+      - name: Debug Output
+        run: echo "${{ steps.build-matrix.outputs.result }}"
+
+  # This uses the matrix generated from the matrix-prep stage
+  # it will run unit tests on whatever OS combinations are desired
+  ios:
+    name: iOS (${{ matrix.buildmode }}, ${{ matrix.iteration }})
+    runs-on: xcode-27
+    needs: matrix_prep
+    # TODO matrix across APIs, at least 11 and 15 (lowest to highest)
+    timeout-minutes: 107
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      NX_NO_CLOUD: true
+      NX_CACHE_DIRECTORY: .nx/cache
+      NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
+      RNFB_RECORD_SCREENS: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.record_screens && '1' || '0' }}
+      CCACHE_SLOPPINESS: clang_index_store,file_stat_matches,include_file_ctime,include_file_mtime,ivfsoverlay,pch_defines,modules,system_headers,time_macros
+      CCACHE_FILECLONE: true
+      CCACHE_DEPEND: true
+      CCACHE_INODECACHE: true
+      CCACHE_LIMIT_MULTIPLE: 0.95
+      # xcode-27 runner (macOS 27) + Xcode 27.0 pin (D6): stable Xcode 27 + iOS 27 sim runtime
+      XCODE_VERSION: '27.0'
+      RNFB_IOS_SIM_RUNTIME: iOS 27.0
+    strategy:
+      fail-fast: false
+      matrix: ${{fromJson(needs.matrix_prep.outputs.matrix)}}
+    steps:
+      - name: Setup Environment for Screen Recording
+        # https://github.com/guidepup/setup-action/releases
+        uses: guidepup/setup-action@5d19b1151e972898cae0f0cc44e239127953bd90 # v0.21.0
+        continue-on-error: true
+        if: env.RNFB_RECORD_SCREENS == '1'
+        with:
+          record: true
+
+      - name: Upload Screen Recording Environment Setup
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always() && env.RNFB_RECORD_SCREENS == '1'
+        with:
+          name: screenrecording-setup-${{ matrix.buildmode }}-${{ matrix.iteration }}.mov
+          path: ./recordings/
+
+      # Set up tool versions
+      # https://github.com/actions/setup-node/releases
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Configure JDK
+        # https://github.com/actions/setup-java/releases
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # https://github.com/maxim-lobanov/setup-xcode/releases
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      # https://github.com/actions/checkout/releases
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 50
+
+      - name: Configure Apple CI (Xcode 27 + iOS 27 runtime)
+        run: bash .github/workflows/scripts/configure-apple-ci.sh
+
+      # Set path variables needed for caches
+      - name: Set workflow variables
+        id: workflow-variables
+        run: |
+          echo "metro-cache=$HOME/.metro" >> $GITHUB_OUTPUT
+          echo "xcode-version=$(xcodebuild -version|tail -1|cut -f3 -d' ')" >> $GITHUB_OUTPUT
+
+      - name: Yarn Cache Restore
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: yarn-cache
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-ios-yarn-v1-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-ios-yarn-v1
+
+      - name: Detox Framework Cache Restore
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: detox-cache
+        continue-on-error: true
+        with:
+          path: ~/Library/Detox/ios
+          key: ${{ runner.os }}-detox-framework-cache-${{ steps.workflow-variables.outputs.xcode-version }}
+
+      # Detox is compiled during yarn install, using Xcode, set up cache first
+      # https://github.com/hendrikmuhs/ccache-action/releases
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        name: Xcode Compile Cache
+        with:
+          # Sticky content-hash key (append-timestamp: false). SPM-only matrix (no cocoapods leg); debug/release stay distinct.
+          key: ${{ runner.os }}-e2e-${{ matrix.buildmode }}-ios-v5-xcode27-${{ hashFiles('yarn.lock', 'packages/*/*.podspec', 'packages/*/ios/**', 'tests/ios/Podfile.lock') }}
+          save: "${{ github.ref == 'refs/heads/main' && matrix.iteration == 0 }}"
+          append-timestamp: false
+          create-symlink: true
+          max-size: 1500M
+
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Restore
+        id: nx-cache
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+          restore-keys: ${{ runner.os }}-nx-v1
+
+      - name: Setup Ruby
+        # https://github.com/ruby/setup-ruby/releases
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: 3
+
+      # Pinned cocoapods/xcodeproj + SimpleCov/RuboCop from the root Gemfile.
+      # Shape/embed suites need those gems; yarn tests:ios:pod:install uses
+      # `bundle exec pod`. Run frozen bundle install BEFORE yarn so CI remains
+      # supply-chain attack-hardened via the freeze; after yarn, postinstallDev →
+      # yarn ruby:install is a no-op (bundle check succeeds).
+      # BUNDLE_FROZEN fails CI on Gemfile.lock drift (do not use deprecated
+      # --frozen; it would persist into .bundle/config).
+      - name: Bundle install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: BUNDLE_FROZEN=true bundle install
+
+      - name: Yarn Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: yarn
+
+      # In-package macOS XCTest (Foundation). Analogous to yarn tests:android:unit.
+      # Produces coverage/ios-unit/lcov.info and merges into coverage/ios-native/lcov.info.
+      - name: iOS XCTest unit tests
+        run: yarn tests:ios:unit
+
+      - name: Verify Firebase SPM Ruby helpers
+        if: matrix.buildmode == 'debug'
+        # Canonical entrypoint — discovers all *_test.rb; shape/embed run for real here.
+        run: yarn tests:ios:ruby
+
+      - name: Pods Cache Restore
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: pods-cache
+        continue-on-error: true
+        with:
+          path: tests/ios/Pods
+          # Hermes CONFIG is handled by tests/patches/react-native+0.88.0-rc.3.patch (#59116); Pods cache is shared across buildmode again.
+          key: ${{ runner.os }}-ios-pods-v7-${{ hashFiles('tests/ios/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-ios-pods-v7
+
+      - name: Pod Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 20
+          retry_wait_seconds: 30
+          max_attempts: 3
+          command: yarn tests:ios:pod:install
+
+      - name: Resolve firebase-tools version
+        id: firebase-tools
+        run: |
+          VER=$(node -p "require('./node_modules/firebase-tools/package.json').version")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Firestore Emulator Restore
+        # Restore-only; Android e2e saves firebase-emulators-v2 on main. See okf-bundle/ci-workflows/index.md.
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: firestore-emulator-cache
+        continue-on-error: true
+        with:
+          enableCrossOsArchive: true
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-v2-${{ steps.firebase-tools.outputs.version }}
+          restore-keys: firebase-emulators-v2-
+
+      - name: Start Firestore Emulator
+        run: yarn tests:emulator:start-ci
+
+      # https://bitrise.io/blog/post/xcode-15-performance-regressions
+      # https://developer.apple.com/forums/thread/805625?answerId=865340022#865340022
+      - name: Install yeetd and fix iOS perf issues
+        run: |
+          wget https://github.com/biscuitehh/yeetd/releases/download/1.0/yeetd-normal.pkg
+          echo "adb04eb720581a32d94daef3ea61108c74494083a79f00836556a36214f354be  yeetd-normal.pkg" | shasum -a 256 -c -
+          sudo installer -pkg yeetd-normal.pkg -target /
+          yeetd &
+          launchctl unload -w /System/Library/LaunchAgents/com.apple.ReportCrash.plist
+          sudo launchctl unload -w /System/Library/LaunchDaemons/com.apple.ReportCrash.Root.plist
+
+      # Vendored Homebrew formulae — pin/update: okf-bundle/ci-workflows/ios.md#pinned-homebrew-utilities
+      - name: Install brew utilities
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 5
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: bash .github/workflows/scripts/install-homebrew-rnfb.sh applesimutils xcbeautify
+
+      - name: Build iOS App Debug
+        if: contains(matrix.buildmode, 'debug')
+        run: |
+          ccache -s
+          export SKIP_BUNDLING=1
+          export RCT_NO_LAUNCH_PACKAGER=1
+          set -o pipefail
+          echo $PATH
+          which clang
+          yarn tests:ios:build
+          ccache -s
+        shell: bash
+
+      - name: Build iOS App Release
+        if: contains(matrix.buildmode, 'release')
+        run: |
+          ccache -s
+          export RCT_NO_LAUNCH_PACKAGER=1
+          set -o pipefail
+          echo $PATH
+          which clang
+          yarn tests:ios:build:release
+          ccache -s
+        shell: bash
+
+      - name: Metro Bundler Cache Restore
+        if: contains(matrix.buildmode, 'debug')
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: metro-bundler-cache
+        continue-on-error: true
+        with:
+          path: ${{ steps.workflow-variables.outputs.metro-cache }}
+          # Sticky content-hash key (no run_id). Shared inputs with Android/Other Metro caches.
+          key: ${{ runner.os }}-ios-metro-v2-${{ hashFiles('yarn.lock', 'tests/package.json', 'tests/metro.config.js', 'tests/index.js', 'tests/app.js', 'tests/react-native.config.js', 'packages/*/package.json', 'packages/*/lib/**') }}
+          restore-keys: ${{ runner.os }}-ios-metro-v2-
+
+      - name: Pre-fetch Javascript bundle
+        if: contains(matrix.buildmode, 'debug')
+        run: |
+          nohup yarn tests:packager:jet-ci > metro.log 2>&1 &
+          printf 'Waiting for packager to come online'
+          until curl --output /dev/null --silent --head --fail http://localhost:8081/status; do
+            printf '.'
+            sleep 2
+          done
+          echo "Packager is online! Preparing bundle..."
+          curl --output /dev/null --silent --head --fail "http://localhost:8081/index.bundle?platform=ios&dev=true&minify=false&inlineSourceMap=true"
+          echo "...javascript bundle ready"
+
+      - name: Start host screen recording
+        if: env.RNFB_RECORD_SCREENS == '1'
+        continue-on-error: true
+        run: |
+          nohup sh -c "sleep 314159265 | screencapture -v -C -k -T0 -g screenrecording.mov > screenrecording.log 2>&1 &"
+
+      - name: Pre-Boot Simulator
+        # Separate Simulator boot from Detox run. boot-simulator.sh polls bootstatus and logs
+        # migration progress so long first-boot waits are visible in the step log.
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 12
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: RNFB_START_SIM_LOGS=0 ./.github/workflows/scripts/boot-simulator.sh
+
+      - name: Start Simulator App Log
+        # One filtered sim log stream (testing + SpringBoard/invertase + Storage); optional sim video when record_screens.
+        # RNFB_SIM_LOG_STDOUT=1 surfaces sim-app.log lines in the step log for iOS Storage diagnosis (B3.1).
+        continue-on-error: true
+        run: |
+          chmod +x ./.github/workflows/scripts/boot-simulator.sh
+          RNFB_RECORD_SCREENS="${RNFB_RECORD_SCREENS}" RNFB_SIM_BOOT_MODE=logs RNFB_SIM_LOG_STDOUT=1 ./.github/workflows/scripts/boot-simulator.sh
+
+      - name: Wait for host load to settle
+        continue-on-error: true
+        run: |
+          chmod +x ./.github/workflows/scripts/wait-for-load-settle.sh
+          ./.github/workflows/scripts/wait-for-load-settle.sh
+
+      - name: Detox Test Debug
+        id: detox_debug
+        if: contains(matrix.buildmode, 'debug')
+        timeout-minutes: 82
+        run: |
+          yarn tests:ios:test-cover 2>&1 | tee detox-step.log
+          exit ${PIPESTATUS[0]}
+
+      # Presence guard: empty packagesHits or missing profraw exits non-zero (prefer 2).
+      # Do not continue-on-error — silent empty coverage must fail CI when Detox passed.
+      # Mirror android-e2e-detox.sh: do not fail the job on coverage when Detox already failed.
+      - name: Process iOS native coverage
+        if: always() && contains(matrix.buildmode, 'debug')
+        run: |
+          set -uo pipefail
+          COVERAGE_EXIT=0
+          yarn tests:ios:test:process-coverage || COVERAGE_EXIT=$?
+          if [[ "${{ steps.detox_debug.outcome }}" == "success" && "$COVERAGE_EXIT" -ne 0 ]]; then
+            exit "$COVERAGE_EXIT"
+          fi
+          if [[ "$COVERAGE_EXIT" -ne 0 ]]; then
+            echo "Detox outcome=${{ steps.detox_debug.outcome }}; not failing job on coverage exit ${COVERAGE_EXIT}"
+          fi
+          exit 0
+
+      - name: Detox Test Release
+        if: contains(matrix.buildmode, 'release')
+        timeout-minutes: 82
+        run: |
+          yarn tests:ios:test:release 2>&1 | tee detox-step.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Write flake summary
+        if: always()
+        continue-on-error: true
+        run: |
+          chmod +x ./.github/workflows/scripts/flake-summary.sh
+          RNFB_DETOX_LOG=detox-step.log ./.github/workflows/scripts/flake-summary.sh
+
+      - name: Stop Screen and App Video and System Logging
+        if: always()
+        continue-on-error: true
+        run: |
+          killall -int simctl
+          if [[ "${RNFB_RECORD_SCREENS}" == "1" ]]; then
+            killall -int screencapture
+          fi
+          pkill -f resource-monitor.sh || true
+
+      - name: Upload App Video
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always() && env.RNFB_RECORD_SCREENS == '1'
+        with:
+          name: simulator-${{ matrix.buildmode }}-${{ matrix.iteration }}_video
+          path: simulator.mp4
+
+      - name: Upload Simulator App Log
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: sim-app-${{ matrix.buildmode }}-${{ matrix.iteration }}_log
+          path: sim-app.log
+
+      - name: Upload resource monitor log
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: resource-monitor-${{ matrix.buildmode }}-${{ matrix.iteration }}_log
+          path: resource-monitor.log
+
+      - name: Upload flake summary
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: flake-summary-${{ matrix.buildmode }}-${{ matrix.iteration }}
+          path: flake-summary.txt
+
+      - name: Upload Detox step log
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: detox-step-${{ matrix.buildmode }}-${{ matrix.iteration }}_log
+          path: detox-step.log
+
+      - name: Upload Metro log
+        # https://github.com/actions/upload-artifact/releases
+        # Wrapper stdout is metro.log; packager detail is /tmp/rnfb-metro-${RCT_METRO_PORT}.log
+        # (see scripts/e2e/start-packager.sh). Glob covers non-default slot ports.
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always() && contains(matrix.buildmode, 'debug')
+        with:
+          name: metro-${{ matrix.buildmode }}-${{ matrix.iteration }}_log
+          path: |
+            metro.log
+            /tmp/rnfb-metro-*.log
+
+      - name: Upload Screen Recording
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always() && env.RNFB_RECORD_SCREENS == '1'
+        with:
+          name: screenrecording-${{ matrix.buildmode }}-${{ matrix.iteration }}
+          path: screenrecording.*
+
+      - name: Upload Firebase emulator script logs
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: emulator-scripts-logs-${{ matrix.buildmode }}-${{ matrix.iteration }}
+          path: .github/workflows/scripts/*.log
+
+      # https://github.com/codecov/codecov-action/releases
+      - name: Upload Codecov e2e TS (iOS)
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        if: contains(matrix.buildmode, 'debug')
+        continue-on-error: true
+        with:
+          files: coverage/lcov.info
+          flags: e2e-ts-ios
+          disable_search: true
+          verbose: true
+
+      - name: Upload Codecov iOS native
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        if: contains(matrix.buildmode, 'debug')
+        continue-on-error: true
+        with:
+          files: coverage/ios-native/lcov.info
+          flags: ios-native
+          disable_search: true
+          verbose: true
+
+      - name: Upload Codecov iOS Ruby
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        if: matrix.buildmode == 'debug'
+        continue-on-error: true
+        with:
+          files: coverage/ios-ruby/lcov.info
+          flags: ios-ruby
+          disable_search: true
+          verbose: true
+
+      - name: Yarn Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ steps.yarn-cache.outputs.cache-primary-key }}
+
+      - name: Nx Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+
+      - name: Detox Framework Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: ~/Library/Detox/ios
+          key: ${{ steps.detox-cache.outputs.cache-primary-key }}
+
+      - name: Pods Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: tests/ios/Pods
+          key: ${{ steps.pods-cache.outputs.cache-primary-key }}
+
+      - name: Metro Bundler Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: contains(matrix.buildmode, 'debug') && matrix.iteration == 0 && github.ref == 'refs/heads/main' && steps.metro-bundler-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        with:
+          path: ${{ steps.workflow-variables.outputs.metro-cache }}
+          key: ${{ steps.metro-bundler-cache.outputs.cache-primary-key }}
+
+  # Simulator/dev builds never exercise Xcode's "Archive" action, which forces
+  # ONLY_ACTIVE_ARCH=NO and DEPLOYMENT_POSTPROCESSING=YES (full install-style
+  # stripping) for a real device SDK regardless of project settings -- the
+  # exact difference between "works from Xcode/simulator" and "crashes only
+  # from a TestFlight/Fastlane archive" reported against SPM support in this
+  # repo. This job produces a real, unsigned device archive (no signing
+  # identity/provisioning profile needed) and verifies the resulting app
+  # bundle is actually loadable. See .github/workflows/scripts/verify-ios-release-archive.sh
+  # and okf-bundle/ios-spm-native-imports.md "Runtime framework embedding".
+  ios-release-archive:
+    name: iOS Release Archive
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      CCACHE_SLOPPINESS: clang_index_store,file_stat_matches,include_file_ctime,include_file_mtime,ivfsoverlay,pch_defines,modules,system_headers,time_macros
+      CCACHE_FILECLONE: true
+      CCACHE_DEPEND: true
+      CCACHE_INODECACHE: true
+      CCACHE_LIMIT_MULTIPLE: 0.95
+      XCODE_VERSION: '27.0'
+      RNFB_CI_REQUIRE_IOS_SIM_RUNTIME: '0'
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 50
+
+      - name: Configure Apple CI (Xcode 27)
+        run: bash .github/workflows/scripts/configure-apple-ci.sh
+
+      - name: Yarn Cache Restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: yarn-cache
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-ios-yarn-v1-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-ios-yarn-v1
+
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        name: Xcode Compile Cache
+        with:
+          # Sticky content-hash key (append-timestamp: false). SPM-only archive job.
+          key: ${{ runner.os }}-e2e-archive-ios-v3-xcode27-${{ hashFiles('yarn.lock', 'packages/*/*.podspec', 'packages/*/ios/**', 'tests/ios/Podfile.lock') }}
+          save: "${{ github.ref == 'refs/heads/main' }}"
+          append-timestamp: false
+          create-symlink: true
+          max-size: 1500M
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: 3
+
+      # Run frozen bundle install BEFORE yarn so CI remains supply-chain
+      # attack-hardened via the freeze; after yarn, postinstallDev → yarn
+      # ruby:install is a no-op (bundle check succeeds).
+      # BUNDLE_FROZEN fails CI on Gemfile.lock drift (do not use deprecated
+      # --frozen; it would persist into .bundle/config).
+      - name: Bundle install
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: BUNDLE_FROZEN=true bundle install
+
+      - name: Yarn Install
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: yarn
+
+      - name: Pods Cache Restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: pods-cache
+        continue-on-error: true
+        with:
+          path: tests/ios/Pods
+          # Hermes CONFIG is handled by tests/patches/react-native+0.88.0-rc.3.patch (#59116); Pods cache is shared across buildmode again.
+          key: ${{ runner.os }}-ios-pods-v7-${{ hashFiles('tests/ios/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-ios-pods-v7
+
+      - name: Pod Install
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 20
+          retry_wait_seconds: 30
+          max_attempts: 3
+          command: yarn tests:ios:pod:install
+
+      - name: Install brew utilities
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 5
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: bash .github/workflows/scripts/install-homebrew-rnfb.sh xcbeautify
+
+      - name: Archive Release build for a real device (unsigned) and verify embedded frameworks
+        working-directory: tests/ios
+        run: |
+          ccache -s
+          chmod +x ../../.github/workflows/scripts/verify-ios-release-archive.sh
+          ../../.github/workflows/scripts/verify-ios-release-archive.sh
+          ccache -s
+        shell: bash
+
+      - name: Upload archive (on failure, for triage)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: failure()
+        with:
+          name: ios-release-archive
+          path: tests/ios/build/testing.xcarchive/Products/Applications/*/Info.plist
+          if-no-files-found: ignore
+
+      - name: Yarn Cache Save
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ steps.yarn-cache.outputs.cache-primary-key }}
+
+      - name: Pods Cache Save
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: tests/ios/Pods
+          key: ${{ steps.pods-cache.outputs.cache-primary-key }}

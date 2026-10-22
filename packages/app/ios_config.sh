@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+#
+# Copyright (c) 2016-present Invertase Limited & Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this library except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+##########################################################################
+##########################################################################
+#
+#  NOTE THAT IF YOU CHANGE THIS FILE YOU MUST RUN pod install AFTERWARDS
+#
+#  This file is installed as an Xcode build script in the project file
+#  by cocoapods, and you will not see your changes until you pod install
+#
+##########################################################################
+##########################################################################
+
+set -e
+
+_MAX_LOOKUPS=2;
+_SEARCH_RESULT=''
+_RN_ROOT_EXISTS=''
+_CURRENT_LOOKUPS=1
+_JSON_ROOT='react-native'
+_JSON_FILE_NAME='firebase.json'
+_JSON_OUTPUT_BASE64='e30=' # { }
+_CURRENT_SEARCH_DIR=${PROJECT_DIR}
+_PLIST_BUDDY=/usr/libexec/PlistBuddy
+_TARGET_PLIST="${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH}"
+_DSYM_PLIST="${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Info.plist"
+
+# plist arrays
+_PLIST_ENTRY_KEYS=()
+_PLIST_ENTRY_TYPES=()
+_PLIST_ENTRY_VALUES=()
+
+function setPlistValue {
+  echo "note:      setting plist entry '$1' of type '$2' in file '$4'"
+  # PlistBuddy is macOS-only (Xcode builds). Fall back to python3 plistlib so
+  # unit tests can exercise this script on Linux CI (ubuntu-latest).
+  if [[ -x "${_PLIST_BUDDY}" ]]; then
+    ${_PLIST_BUDDY} -c "Add :$1 $2 '$3'" $4 || echo "note:      '$1' already exists"
+  else
+    python3 - "$1" "$2" "$3" "$4" <<'PY' || echo "note:      failed to set '$1'"
+import plistlib
+import sys
+
+key, typ, value, path = sys.argv[1:5]
+with open(path, "rb") as handle:
+    data = plistlib.load(handle)
+if key in data:
+    sys.exit(0)
+if typ == "bool":
+    data[key] = value in ("YES", "true", "1")
+else:
+    data[key] = value
+with open(path, "wb") as handle:
+    plistlib.dump(data, handle)
+PY
+  fi
+}
+
+function getFirebaseJsonKeyValue () {
+  if [[ ${_RN_ROOT_EXISTS} ]]; then
+    ruby -rjson -e 'output=JSON.parse(File.read(ARGV.fetch(0))); puts output[ARGV.fetch(1)][ARGV.fetch(2)]' "$_SEARCH_RESULT" "$_JSON_ROOT" "$1"
+  else
+    echo ""
+  fi;
+}
+
+function jsonBoolToYesNo () {
+  if [[ $1 == "false" ]]; then
+    echo "NO"
+  elif [[ $1 == "true" ]]; then
+    echo "YES"
+  else echo "NO"
+  fi
+}
+
+echo "note: -> RNFB build script started"
+echo "note: 1) Locating ${_JSON_FILE_NAME} file:"
+
+if [[ -z ${_CURRENT_SEARCH_DIR} ]]; then
+  _CURRENT_SEARCH_DIR=$(pwd)
+fi;
+
+while true; do
+  _CURRENT_SEARCH_DIR=$(dirname "$_CURRENT_SEARCH_DIR")
+  if [[ "$_CURRENT_SEARCH_DIR" == "/" ]] || [[ ${_CURRENT_LOOKUPS} -gt ${_MAX_LOOKUPS} ]]; then break; fi;
+  echo "note:      ($_CURRENT_LOOKUPS of $_MAX_LOOKUPS) Searching in '$_CURRENT_SEARCH_DIR' for a ${_JSON_FILE_NAME} file."
+  _SEARCH_RESULT=$(find "$_CURRENT_SEARCH_DIR" -maxdepth 2 -name ${_JSON_FILE_NAME} -print | /usr/bin/head -n 1)
+  if [[ ${_SEARCH_RESULT} ]]; then
+    echo "note:      ${_JSON_FILE_NAME} found at $_SEARCH_RESULT"
+    break;
+  fi;
+  _CURRENT_LOOKUPS=$((_CURRENT_LOOKUPS+1))
+done
+
+if [[ ${_SEARCH_RESULT} ]]; then
+  if ! _RN_ROOT_EXISTS=$(ruby -rjson -e 'output=JSON.parse(File.read(ARGV.fetch(0))); puts output[ARGV.fetch(1)]' "$_SEARCH_RESULT" "$_JSON_ROOT"); then
+    echo "error: Failed to parse firebase.json, check for syntax errors."
+    exit 1
+  fi
+
+  if [[ ${_RN_ROOT_EXISTS} ]]; then
+    if ! python3 --version >/dev/null 2>&1; then echo "error: python3 not found, firebase.json file processing error." && exit 1; fi
+    _JSON_OUTPUT_BASE64=$(python3 -c 'import base64,json,sys; print(base64.b64encode(json.dumps(json.load(open(sys.argv[1], "rb"))["react-native"]).encode()).decode())' "$_SEARCH_RESULT" || echo "e30=")
+  fi
+
+  _PLIST_ENTRY_KEYS+=("firebase_json_raw")
+  _PLIST_ENTRY_TYPES+=("string")
+  _PLIST_ENTRY_VALUES+=("$_JSON_OUTPUT_BASE64")
+
+  # config.app_data_collection_default_enabled
+  _APP_DATA_COLLECTION_ENABLED=$(getFirebaseJsonKeyValue "app_data_collection_default_enabled")
+  if [[ $_APP_DATA_COLLECTION_ENABLED ]]; then
+    _PLIST_ENTRY_KEYS+=("FirebaseDataCollectionDefaultEnabled")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_APP_DATA_COLLECTION_ENABLED")")
+  fi
+
+  # config.analytics_auto_collection_enabled
+  _ANALYTICS_AUTO_COLLECTION=$(getFirebaseJsonKeyValue "analytics_auto_collection_enabled")
+  if [[ $_ANALYTICS_AUTO_COLLECTION ]]; then
+    _PLIST_ENTRY_KEYS+=("FIREBASE_ANALYTICS_COLLECTION_ENABLED")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_ANALYTICS_AUTO_COLLECTION")")
+  fi
+
+  # config.analytics_collection_deactivated
+  _ANALYTICS_DEACTIVATED=$(getFirebaseJsonKeyValue "analytics_collection_deactivated")
+  if [[ $_ANALYTICS_DEACTIVATED ]]; then
+    _PLIST_ENTRY_KEYS+=("FIREBASE_ANALYTICS_COLLECTION_DEACTIVATED")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_ANALYTICS_DEACTIVATED")")
+  fi
+
+  # config.analytics_idfv_collection_enabled
+  _ANALYTICS_IDFV_COLLECTION=$(getFirebaseJsonKeyValue "analytics_idfv_collection_enabled")
+  if [[ $_ANALYTICS_IDFV_COLLECTION ]]; then
+    _PLIST_ENTRY_KEYS+=("GOOGLE_ANALYTICS_IDFV_COLLECTION_ENABLED")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_ANALYTICS_IDFV_COLLECTION")")
+  fi
+
+  # config.analytics_default_allow_analytics_storage
+  _ANALYTICS_STORAGE=$(getFirebaseJsonKeyValue "analytics_default_allow_analytics_storage")
+  if [[ $_ANALYTICS_STORAGE ]]; then
+    _PLIST_ENTRY_KEYS+=("GOOGLE_ANALYTICS_DEFAULT_ALLOW_ANALYTICS_STORAGE")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_ANALYTICS_STORAGE")")
+  fi
+
+  # config.analytics_default_allow_ad_storage
+  _ANALYTICS_AD_STORAGE=$(getFirebaseJsonKeyValue "analytics_default_allow_ad_storage")
+  if [[ $_ANALYTICS_AD_STORAGE ]]; then
+    _PLIST_ENTRY_KEYS+=("GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_STORAGE")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_ANALYTICS_AD_STORAGE")")
+  fi
+
+  # config.analytics_default_allow_ad_user_data
+  _ANALYTICS_AD_USER_DATA=$(getFirebaseJsonKeyValue "analytics_default_allow_ad_user_data")
+  if [[ $_ANALYTICS_AD_USER_DATA ]]; then
+    _PLIST_ENTRY_KEYS+=("GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_USER_DATA")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_ANALYTICS_AD_USER_DATA")")
+  fi
+
+  # config.analytics_default_allow_ad_personalization_signals
+  _ANALYTICS_PERSONALIZATION=$(getFirebaseJsonKeyValue "analytics_default_allow_ad_personalization_signals")
+  if [[ $_ANALYTICS_PERSONALIZATION ]]; then
+    _PLIST_ENTRY_KEYS+=("GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_ANALYTICS_PERSONALIZATION")")
+  fi
+
+  # config.analytics_registration_with_ad_network_enabled
+  _ANALYTICS_REGISTRATION_WITH_AD_NETWORK=$(getFirebaseJsonKeyValue "google_analytics_registration_with_ad_network_enabled")
+  if [[ $_ANALYTICS_REGISTRATION_WITH_AD_NETWORK ]]; then
+    _PLIST_ENTRY_KEYS+=("GOOGLE_ANALYTICS_REGISTRATION_WITH_AD_NETWORK_ENABLED")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_ANALYTICS_REGISTRATION_WITH_AD_NETWORK")")
+  fi
+
+  # config.google_analytics_automatic_screen_reporting_enabled
+  _ANALYTICS_AUTO_SCREEN_REPORTING=$(getFirebaseJsonKeyValue "google_analytics_automatic_screen_reporting_enabled")
+  if [[ $_ANALYTICS_AUTO_SCREEN_REPORTING ]]; then
+    _PLIST_ENTRY_KEYS+=("FirebaseAutomaticScreenReportingEnabled")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_ANALYTICS_AUTO_SCREEN_REPORTING")")
+  fi
+
+  # config.perf_auto_collection_enabled
+  _PERF_AUTO_COLLECTION=$(getFirebaseJsonKeyValue "perf_auto_collection_enabled")
+  if [[ $_PERF_AUTO_COLLECTION ]]; then
+    _PLIST_ENTRY_KEYS+=("firebase_performance_collection_enabled")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_PERF_AUTO_COLLECTION")")
+  fi
+
+  # config.perf_collection_deactivated
+  _PERF_DEACTIVATED=$(getFirebaseJsonKeyValue "perf_collection_deactivated")
+  if [[ $_PERF_DEACTIVATED ]]; then
+    _PLIST_ENTRY_KEYS+=("firebase_performance_collection_deactivated")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_PERF_DEACTIVATED")")
+  fi
+
+  # config.messaging_auto_init_enabled
+  _MESSAGING_AUTO_INIT=$(getFirebaseJsonKeyValue "messaging_auto_init_enabled")
+  if [[ $_MESSAGING_AUTO_INIT ]]; then
+    _PLIST_ENTRY_KEYS+=("FirebaseMessagingAutoInitEnabled")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_MESSAGING_AUTO_INIT")")
+  fi
+
+  # config.messaging_installation_id_enabled
+  _MESSAGING_INSTALLATION_ID=$(getFirebaseJsonKeyValue "messaging_installation_id_enabled")
+  if [[ $_MESSAGING_INSTALLATION_ID ]]; then
+    _PLIST_ENTRY_KEYS+=("FirebaseMessagingInstallationIdEnabled")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_MESSAGING_INSTALLATION_ID")")
+  fi
+
+  # config.in_app_messaging_auto_colllection_enabled
+  _FIAM_AUTO_INIT=$(getFirebaseJsonKeyValue "in_app_messaging_auto_collection_enabled")
+  if [[ $_FIAM_AUTO_INIT ]]; then
+    _PLIST_ENTRY_KEYS+=("FirebaseInAppMessagingAutomaticDataCollectionEnabled")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_FIAM_AUTO_INIT")")
+  fi
+
+  # config.app_check_token_auto_refresh
+  _APP_CHECK_TOKEN_AUTO_REFRESH=$(getFirebaseJsonKeyValue "app_check_token_auto_refresh")
+  if [[ $_APP_CHECK_TOKEN_AUTO_REFRESH ]]; then
+    _PLIST_ENTRY_KEYS+=("FirebaseAppCheckTokenAutoRefreshEnabled")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("$(jsonBoolToYesNo "$_APP_CHECK_TOKEN_AUTO_REFRESH")")
+  fi
+
+  # config.crashlytics_disable_auto_disabler - undocumented for now - mainly for debugging, document if becomes useful
+  _CRASHLYTICS_AUTO_DISABLE_ENABLED=$(getFirebaseJsonKeyValue "crashlytics_disable_auto_disabler")
+  if [[ $_CRASHLYTICS_AUTO_DISABLE_ENABLED == "true" ]]; then
+    echo "Disabled Crashlytics auto disabler." # do nothing
+  else
+    _PLIST_ENTRY_KEYS+=("FirebaseCrashlyticsCollectionEnabled")
+    _PLIST_ENTRY_TYPES+=("bool")
+    _PLIST_ENTRY_VALUES+=("NO")
+  fi
+else
+  _PLIST_ENTRY_KEYS+=("firebase_json_raw")
+  _PLIST_ENTRY_TYPES+=("string")
+  _PLIST_ENTRY_VALUES+=("$_JSON_OUTPUT_BASE64")
+  echo "warning:   A firebase.json file was not found, whilst this file is optional it is recommended to include it to configure firebase services in React Native Firebase."
+fi;
+
+echo "note: 2) Injecting Info.plist entries: "
+
+# Log out the keys we're adding
+for i in "${!_PLIST_ENTRY_KEYS[@]}"; do
+  echo "    ->  $i) ${_PLIST_ENTRY_KEYS[$i]}" "${_PLIST_ENTRY_TYPES[$i]}" "${_PLIST_ENTRY_VALUES[$i]}"
+done
+
+for plist in "${_TARGET_PLIST}" "${_DSYM_PLIST}" ; do
+  if [[ -f "${plist}" ]]; then
+
+    # paths with spaces break the call to setPlistValue. temporarily modify
+    # the shell internal field separator variable (IFS), which normally
+    # includes spaces, to consist only of line breaks
+    oldifs=$IFS
+    IFS="
+"
+
+    for i in "${!_PLIST_ENTRY_KEYS[@]}"; do
+      setPlistValue "${_PLIST_ENTRY_KEYS[$i]}" "${_PLIST_ENTRY_TYPES[$i]}" "${_PLIST_ENTRY_VALUES[$i]}" "${plist}"
+    done
+
+    # restore the original internal field separator value
+    IFS=$oldifs
+  else
+    echo "warning:   A Info.plist build output file was not found (${plist})"
+  fi
+done
+
+echo "note: <- RNFB build script finished"

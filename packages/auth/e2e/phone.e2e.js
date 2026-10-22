@@ -1,0 +1,293 @@
+// const TEST_EMAIL = 'test@test.com';
+// const TEST_PASS = 'test1234';
+
+const { clearAllUsers, getLastSmsCode, getRandomPhoneNumber } = require('./helpers');
+
+function assertPhoneUserPublicSurface(user, phoneNumber) {
+  user.should.be.an.Object();
+  user.uid.should.be.a.String();
+  user.uid.length.should.be.greaterThan(0);
+  user.phoneNumber.should.equal(phoneNumber);
+  user.providerId.should.equal('firebase');
+  user.emailVerified.should.equal(false);
+  user.isAnonymous.should.equal(false);
+  should.equal(user.displayName, null);
+  should.equal(user.email, null);
+  should.equal(user.photoURL, null);
+  should.equal(user.tenantId, null);
+
+  user.metadata.should.be.an.Object();
+  user.metadata.creationTime.should.be.a.String();
+  user.metadata.lastSignInTime.should.be.a.String();
+
+  user.multiFactor.should.be.an.Object();
+  user.multiFactor.enrolledFactors.should.be.an.Array();
+
+  user.providerData.should.be.an.Array();
+  user.providerData.length.should.equal(1);
+  user.providerData[0].providerId.should.equal('phone');
+  user.providerData[0].phoneNumber.should.equal(phoneNumber);
+  should.equal(user.providerData[0].displayName, null);
+  should.equal(user.providerData[0].email, null);
+  should.equal(user.providerData[0].photoURL, null);
+
+  user.delete.should.be.a.Function();
+  user.getIdToken.should.be.a.Function();
+  user.getIdTokenResult.should.be.a.Function();
+  user.linkWithCredential.should.be.a.Function();
+  user.linkWithPopup.should.be.a.Function();
+  user.linkWithRedirect.should.be.a.Function();
+  user.reauthenticateWithCredential.should.be.a.Function();
+  user.reauthenticateWithPopup.should.be.a.Function();
+  user.reauthenticateWithRedirect.should.be.a.Function();
+  user.reload.should.be.a.Function();
+  user.sendEmailVerification.should.be.a.Function();
+  user.toJSON.should.be.a.Function();
+  user.unlink.should.be.a.Function();
+  user.updateEmail.should.be.a.Function();
+  user.updatePassword.should.be.a.Function();
+  user.updatePhoneNumber.should.be.a.Function();
+  user.updateProfile.should.be.a.Function();
+  user.verifyBeforeUpdateEmail.should.be.a.Function();
+}
+
+describe('auth() => Phone', function () {
+  // Other platforms don't support phone auth
+  if (Platform.other) {
+    return;
+  }
+  describe('modular', function () {
+    before(async function () {
+      const { getApp } = modular;
+      const { getAuth } = authModular;
+      const defaultAuth = getAuth(getApp());
+
+      try {
+        await clearAllUsers();
+      } catch (e) {
+        throw e;
+      }
+      defaultAuth.settings.appVerificationDisabledForTesting = true;
+      await Utils.sleep(50);
+    });
+
+    beforeEach(async function () {
+      const { getApp } = modular;
+      const { getAuth, signOut } = authModular;
+      const defaultAuth = getAuth(getApp());
+
+      if (defaultAuth.currentUser) {
+        await signOut(defaultAuth);
+        await Utils.sleep(50);
+      }
+    });
+
+    describe('signInWithPhoneNumber', function () {
+      it('signs in with a valid code', async function () {
+        const { getApp } = modular;
+        const { getAuth, signInWithPhoneNumber } = authModular;
+
+        const defaultAuth = getAuth(getApp());
+
+        const testPhone = getRandomPhoneNumber();
+        const confirmResult = await signInWithPhoneNumber(defaultAuth, testPhone);
+        confirmResult.verificationId.should.be.a.String();
+        should.ok(confirmResult.verificationId.length, 'verificationId string should not be empty');
+        confirmResult.confirm.should.be.a.Function();
+        const lastSmsCode = await getLastSmsCode(testPhone);
+        const userCredential = await confirmResult.confirm(lastSmsCode);
+        assertPhoneUserPublicSurface(userCredential.user, testPhone);
+      });
+
+      it('errors on invalid code', async function () {
+        const { getApp } = modular;
+        const { getAuth, signInWithPhoneNumber } = authModular;
+
+        const defaultAuth = getAuth(getApp());
+
+        const testPhone = getRandomPhoneNumber();
+        const confirmResult = await signInWithPhoneNumber(defaultAuth, testPhone);
+        confirmResult.verificationId.should.be.a.String();
+        should.ok(confirmResult.verificationId.length, 'verificationId string should not be empty');
+        confirmResult.confirm.should.be.a.Function();
+        // Get the last SMS code just to make absolutely sure we don't accidentally use it
+        const lastSmsCode = await getLastSmsCode(testPhone);
+        await confirmResult
+          .confirm(lastSmsCode === '000000' ? '111111' : '000000')
+          .should.be.rejected();
+        // TODO test error code and message
+
+        // If you don't consume the valid code, then it sticks around
+        await confirmResult.confirm(lastSmsCode);
+      });
+    });
+
+    // Note: verifyPhoneNumber is not available in the Firebase v9 API. The following tests need to be updated to use the new API.
+    // TODO these are now heavily rate limited by Firebase so they fail often
+    // or take minutes to complete each test.
+    xdescribe('verifyPhoneNumber', function () {
+      it('successfully verifies', async function () {
+        const { getApp } = modular;
+        const { getAuth, signInWithPhoneNumber, verifyPhoneNumber } = authModular;
+
+        const defaultApp = getApp();
+        const defaultAuth = getAuth(defaultApp);
+
+        const testPhone = getRandomPhoneNumber();
+        const confirmResult = await signInWithPhoneNumber(defaultAuth, testPhone);
+        const lastSmsCode = await getLastSmsCode(testPhone);
+        await confirmResult.confirm(lastSmsCode);
+        await verifyPhoneNumber(defaultAuth, testPhone, false, false);
+      });
+
+      it('uses the autoVerifyTimeout when a non boolean autoVerifyTimeoutOrForceResend is provided', async function () {
+        const { getApp } = modular;
+        const { getAuth, signInWithPhoneNumber, verifyPhoneNumber } = authModular;
+
+        const defaultApp = getApp();
+        const defaultAuth = getAuth(defaultApp);
+        const testPhone = getRandomPhoneNumber();
+        const confirmResult = await signInWithPhoneNumber(defaultAuth, testPhone);
+        const lastSmsCode = await getLastSmsCode(testPhone);
+        await confirmResult.confirm(lastSmsCode);
+        await verifyPhoneNumber(defaultAuth, testPhone, 0, false);
+      });
+
+      it('throws an error with an invalid on event', async function () {
+        const { getAuth, verifyPhoneNumber } = authModular;
+
+        const auth = getAuth();
+        const testPhone = getRandomPhoneNumber();
+
+        try {
+          await verifyPhoneNumber(auth, testPhone).on('example', () => {});
+
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql(
+            "firebase.auth.PhoneAuthListener.on(*, _, _, _) 'event' must equal 'state_changed'.",
+          );
+          return Promise.resolve();
+        }
+      });
+
+      it('throws an error with an invalid observer event', async function () {
+        const { getApp } = modular;
+        const { getAuth, verifyPhoneNumber } = authModular;
+
+        const defaultApp = getApp();
+        const defaultAuth = getAuth(defaultApp);
+
+        const testPhone = getRandomPhoneNumber();
+        try {
+          await verifyPhoneNumber(defaultAuth, testPhone).on('state_changed', null, null, () => {});
+
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql(
+            "firebase.auth.PhoneAuthListener.on(_, *, _, _) 'observer' must be a function.",
+          );
+          return Promise.resolve();
+        }
+      });
+
+      it('successfully runs verification complete handler', async function () {
+        const { getApp } = modular;
+        const { getAuth, verifyPhoneNumber } = authModular;
+
+        const defaultApp = getApp();
+        const defaultAuth = getAuth(defaultApp);
+
+        const testPhone = getRandomPhoneNumber();
+        const thenCb = sinon.spy();
+        await verifyPhoneNumber(defaultAuth, testPhone).then(thenCb);
+        thenCb.should.be.calledOnce();
+        const successAuthSnapshot = thenCb.args[0][0];
+        if (Platform.ios) {
+          successAuthSnapshot.state.should.equal('sent');
+        } else {
+          successAuthSnapshot.state.should.equal('timeout');
+        }
+      });
+
+      it('successfully runs and calls success callback', async function () {
+        const { getApp } = modular;
+        const { getAuth, verifyPhoneNumber } = authModular;
+
+        const defaultApp = getApp();
+        const defaultAuth = getAuth(defaultApp);
+
+        const testPhone = getRandomPhoneNumber();
+        const successCb = sinon.spy();
+        const observerCb = sinon.spy();
+        const errorCb = sinon.spy();
+
+        await verifyPhoneNumber(defaultAuth, testPhone).on(
+          'state_changed',
+          observerCb,
+          errorCb,
+          successCb,
+        );
+
+        await Utils.spyToBeCalledOnceAsync(successCb);
+        errorCb.should.be.callCount(0);
+        successCb.should.be.calledOnce();
+        let observerAuthSnapshot = observerCb.args[0][0];
+        const successAuthSnapshot = successCb.args[0][0];
+        successAuthSnapshot.verificationId.should.be.a.String();
+        if (Platform.ios) {
+          observerCb.should.be.calledOnce();
+          successAuthSnapshot.state.should.equal('sent');
+        } else {
+          // android waits for SMS auto retrieval which does not work on an emulator
+          // it gets a sent and a timeout message on observer, just the timeout on success
+          observerCb.should.be.calledTwice();
+          observerAuthSnapshot = observerCb.args[1][0];
+          successAuthSnapshot.state.should.equal('timeout');
+        }
+        JSON.stringify(successAuthSnapshot).should.equal(JSON.stringify(observerAuthSnapshot));
+      });
+
+      // TODO determine why this is not stable on the emulator, is it also not stable on real device?
+      xit('successfully runs and calls error callback', async function () {
+        const { getApp } = modular;
+        const { getAuth, verifyPhoneNumber } = authModular;
+
+        const defaultApp = getApp();
+        const defaultAuth = getAuth(defaultApp);
+
+        const successCb = sinon.spy();
+        const observerCb = sinon.spy();
+        const errorCb = sinon.spy();
+
+        await verifyPhoneNumber(defaultAuth, 'notaphonenumber').on(
+          'state_changed',
+          observerCb,
+          errorCb,
+          successCb,
+        );
+
+        await Utils.spyToBeCalledOnceAsync(errorCb);
+        errorCb.should.be.calledOnce();
+        observerCb.should.be.calledOnce();
+        // const observerEvent = observerCb.args[0][0];
+        successCb.should.be.callCount(0);
+        // const errorEvent = errorCb.args[0][0];
+        // errorEvent.error.should.containEql('auth/invalid-phone-number');
+        // JSON.stringify(errorEvent).should.equal(JSON.stringify(observerEvent));
+      });
+
+      it('catches an error and emits an error event', async function () {
+        const { getApp } = modular;
+        const { getAuth, verifyPhoneNumber } = authModular;
+
+        const defaultApp = getApp();
+        const defaultAuth = getAuth(defaultApp);
+
+        const catchCb = sinon.spy();
+        await verifyPhoneNumber(defaultAuth, 'badphonenumber').catch(catchCb);
+        catchCb.should.be.calledOnce();
+      });
+    });
+  });
+});

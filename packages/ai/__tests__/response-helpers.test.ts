@@ -1,0 +1,364 @@
+/**
+ * @license
+ * Copyright 2024 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { describe, expect, it, jest, afterEach } from '@jest/globals';
+import { addHelpers, formatBlockErrorMessage } from '../lib/requests/response-helpers';
+
+import {
+  BlockReason,
+  Content,
+  FinishReason,
+  GenerateContentResponse,
+  FunctionCallPart,
+} from '../lib/types';
+
+const fakeResponseText: GenerateContentResponse = {
+  candidates: [
+    {
+      index: 0,
+      content: {
+        role: 'model',
+        parts: [
+          { type: 'text' as const, text: 'Some text' },
+          { type: 'text' as const, text: ' and some more text' },
+        ],
+      },
+    },
+  ],
+};
+
+const fakeResponseThoughts: GenerateContentResponse = {
+  candidates: [
+    {
+      index: 0,
+      content: {
+        role: 'model',
+        parts: [
+          { type: 'text' as const, text: 'Some text' },
+          { type: 'text' as const, text: 'and some thoughts', thought: true },
+        ],
+      },
+    },
+  ],
+};
+
+const functionCallPart1: FunctionCallPart = {
+  type: 'functionCall',
+  functionCall: {
+    name: 'find_theaters',
+    args: {
+      location: 'Mountain View, CA',
+      movie: 'Barbie',
+    },
+  },
+};
+
+const functionCallPart2: FunctionCallPart = {
+  type: 'functionCall',
+  functionCall: {
+    name: 'find_times',
+    args: {
+      location: 'Mountain View, CA',
+      movie: 'Barbie',
+      time: '20:00',
+    },
+  },
+};
+
+const fakeResponseFunctionCall: GenerateContentResponse = {
+  candidates: [
+    {
+      index: 0,
+      content: {
+        role: 'model',
+        parts: [functionCallPart1],
+      },
+    },
+  ],
+};
+
+const fakeResponseFunctionCalls: GenerateContentResponse = {
+  candidates: [
+    {
+      index: 0,
+      content: {
+        role: 'model',
+        parts: [functionCallPart1, functionCallPart2],
+      },
+    },
+  ],
+};
+
+const fakeResponseMixed1: GenerateContentResponse = {
+  candidates: [
+    {
+      index: 0,
+      content: {
+        role: 'model',
+        parts: [{ type: 'text' as const, text: 'some text' }, functionCallPart2],
+      },
+    },
+  ],
+};
+
+const fakeResponseMixed2: GenerateContentResponse = {
+  candidates: [
+    {
+      index: 0,
+      content: {
+        role: 'model',
+        parts: [functionCallPart1, { type: 'text' as const, text: 'some text' }],
+      },
+    },
+  ],
+};
+
+const fakeResponseMixed3: GenerateContentResponse = {
+  candidates: [
+    {
+      index: 0,
+      content: {
+        role: 'model',
+        parts: [
+          { type: 'text' as const, text: 'some text' },
+          functionCallPart1,
+          { type: 'text' as const, text: ' and more text' },
+        ],
+      },
+    },
+  ],
+};
+
+const badFakeResponse: GenerateContentResponse = {
+  promptFeedback: {
+    blockReason: BlockReason.SAFETY,
+    safetyRatings: [],
+  },
+};
+
+describe('response-helpers methods', () => {
+  afterEach(() => {
+    jest.restoreAllMocks(); // Use Jest's restore function
+  });
+
+  describe('addHelpers', () => {
+    it('good response text', () => {
+      const enhancedResponse = addHelpers(fakeResponseText);
+      expect(enhancedResponse.text()).toBe('Some text and some more text');
+      expect(enhancedResponse.functionCalls()).toBeUndefined();
+      expect(enhancedResponse.thoughtSummary()).toBeUndefined();
+    });
+
+    it('good response functionCall', () => {
+      const enhancedResponse = addHelpers(fakeResponseFunctionCall);
+      expect(enhancedResponse.text()).toBe('');
+      expect(enhancedResponse.functionCalls()).toEqual([functionCallPart1.functionCall]);
+      expect(enhancedResponse.thoughtSummary()).toBeUndefined();
+    });
+
+    it('good response functionCalls', () => {
+      const enhancedResponse = addHelpers(fakeResponseFunctionCalls);
+      expect(enhancedResponse.text()).toBe('');
+      expect(enhancedResponse.functionCalls()).toEqual([
+        functionCallPart1.functionCall,
+        functionCallPart2.functionCall,
+      ]);
+      expect(enhancedResponse.thoughtSummary()).toBeUndefined();
+    });
+
+    it('good response text/functionCall', () => {
+      const enhancedResponse = addHelpers(fakeResponseMixed1);
+      expect(enhancedResponse.functionCalls()).toEqual([functionCallPart2.functionCall]);
+      expect(enhancedResponse.text()).toBe('some text');
+      expect(enhancedResponse.thoughtSummary()).toBeUndefined();
+    });
+
+    it('good response functionCall/text', () => {
+      const enhancedResponse = addHelpers(fakeResponseMixed2);
+      expect(enhancedResponse.functionCalls()).toEqual([functionCallPart1.functionCall]);
+      expect(enhancedResponse.text()).toBe('some text');
+      expect(enhancedResponse.thoughtSummary()).toBeUndefined();
+    });
+
+    it('good response text/functionCall/text', () => {
+      const enhancedResponse = addHelpers(fakeResponseMixed3);
+      expect(enhancedResponse.functionCalls()).toEqual([functionCallPart1.functionCall]);
+      expect(enhancedResponse.text()).toBe('some text and more text');
+      expect(enhancedResponse.thoughtSummary()).toBeUndefined();
+    });
+
+    it('good response text/thought', () => {
+      const enhancedResponse = addHelpers(fakeResponseThoughts);
+      expect(enhancedResponse.text()).toBe('Some text');
+      expect(enhancedResponse.thoughtSummary()).toBe('and some thoughts');
+      expect(enhancedResponse.functionCalls()).toBeUndefined();
+    });
+
+    it('bad response safety', () => {
+      const enhancedResponse = addHelpers(badFakeResponse);
+      expect(() => enhancedResponse.text()).toThrow('SAFETY');
+      expect(() => enhancedResponse.thoughtSummary()).toThrow('SAFETY');
+      expect(() => enhancedResponse.functionCalls()).toThrow('SAFETY');
+      expect(() => enhancedResponse.inlineDataParts()).toThrow('SAFETY');
+    });
+
+    it('warns when multiple candidates are present', () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const enhancedResponse = addHelpers({
+        candidates: [
+          fakeResponseText.candidates![0]!,
+          {
+            index: 1,
+            content: {
+              role: 'model',
+              parts: [{ type: 'text' as const, text: 'second' }],
+            },
+          },
+        ],
+      });
+      expect(enhancedResponse.text()).toBe('Some text and some more text');
+      warnSpy.mockRestore();
+    });
+
+    it('returns inlineDataParts when present', () => {
+      const enhancedResponse = addHelpers({
+        candidates: [
+          {
+            index: 0,
+            content: {
+              role: 'model',
+              parts: [
+                {
+                  type: 'inlineData',
+                  inlineData: { mimeType: 'image/png', data: 'abc' },
+                },
+              ],
+            },
+          },
+        ],
+      });
+      expect(enhancedResponse.inlineDataParts()).toEqual([
+        {
+          type: 'inlineData',
+          inlineData: { mimeType: 'image/png', data: 'abc' },
+        },
+      ]);
+    });
+
+    it('returns undefined helpers when there are no candidates or promptFeedback', () => {
+      const enhancedResponse = addHelpers({});
+      expect(enhancedResponse.thoughtSummary()).toBeUndefined();
+      expect(enhancedResponse.inlineDataParts()).toBeUndefined();
+      expect(enhancedResponse.functionCalls()).toBeUndefined();
+      expect(enhancedResponse.text()).toBe('');
+    });
+
+    it('returns undefined inlineDataParts when candidates have no inlineData parts', () => {
+      const enhancedResponse = addHelpers({
+        candidates: [
+          {
+            index: 0,
+            content: {
+              role: 'model',
+              parts: [{ type: 'text' as const, text: 'no images' }],
+            },
+          },
+        ],
+      });
+      expect(enhancedResponse.inlineDataParts()).toBeUndefined();
+    });
+
+    it('throws on bad finish reasons when reading text', () => {
+      const enhancedResponse = addHelpers({
+        candidates: [
+          {
+            index: 0,
+            finishReason: FinishReason.RECITATION,
+            content: {
+              role: 'model',
+              parts: [{ type: 'text' as const, text: 'copied' }],
+            },
+          },
+        ],
+      });
+      expect(() => enhancedResponse.text()).toThrow('RECITATION');
+    });
+  });
+
+  describe('getBlockString', () => {
+    it('has no promptFeedback or bad finishReason', () => {
+      const message = formatBlockErrorMessage({
+        candidates: [
+          {
+            index: 0,
+            finishReason: FinishReason.STOP,
+            finishMessage: 'this was fine',
+            content: {} as Content,
+          },
+        ],
+      });
+      expect(message).toBe('');
+    });
+
+    it('has promptFeedback and blockReason only', () => {
+      const message = formatBlockErrorMessage({
+        promptFeedback: {
+          blockReason: BlockReason.SAFETY,
+          safetyRatings: [],
+        },
+      });
+      expect(message).toContain('Response was blocked due to SAFETY');
+    });
+
+    it('has promptFeedback with blockReason and blockMessage', () => {
+      const message = formatBlockErrorMessage({
+        promptFeedback: {
+          blockReason: BlockReason.SAFETY,
+          blockReasonMessage: 'safety reasons',
+          safetyRatings: [],
+        },
+      });
+      expect(message).toContain('Response was blocked due to SAFETY: safety reasons');
+    });
+
+    it('has bad finishReason only', () => {
+      const message = formatBlockErrorMessage({
+        candidates: [
+          {
+            index: 0,
+            finishReason: FinishReason.SAFETY,
+            content: {} as Content,
+          },
+        ],
+      });
+      expect(message).toContain('Candidate was blocked due to SAFETY');
+    });
+
+    it('has finishReason and finishMessage', () => {
+      const message = formatBlockErrorMessage({
+        candidates: [
+          {
+            index: 0,
+            finishReason: FinishReason.SAFETY,
+            finishMessage: 'unsafe candidate',
+            content: {} as Content,
+          },
+        ],
+      });
+      expect(message).toContain('Candidate was blocked due to SAFETY: unsafe candidate');
+    });
+  });
+});

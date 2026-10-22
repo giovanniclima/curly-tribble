@@ -1,0 +1,698 @@
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+async function isSimulator() {
+  const DeviceInfo = require('react-native-device-info');
+  return await DeviceInfo.isEmulator();
+}
+
+/**
+ * Whether this Simulator is expected to complete real APNs registration.
+ * Hard-coded `false` until the TODO below is validated on CI.
+ *
+ * IMPORTANT: Do NOT gate the APNs `registration-timeout` / supersede specs
+ * (`z-apns-registration-timeout.e2e.js`) on this helper. When the TODO flips to
+ * return true for ARM64 hosts, those tests must keep running unconditionally
+ * (aside from ios + simulator checks) so a capability flip cannot silently drop
+ * the timeout / supersede coverage.
+ */
+async function isAPNSCapableSimulator() {
+  return false;
+  // TODO need to fix this for M1 on CI
+  // supportedAbis = await DeviceInfo.supportedAbis(); // looking for an ARM Simulator implying M1 host
+  // iosVersionMajor = DeviceInfo.getSystemVersion().split('.')[0]; // looking for iOS16+
+  // iosVersionMinor = DeviceInfo.getSystemVersion().split('.')[1]; // iOS 17.2 has a problem !?
+  // if (
+  //   supportedAbis.includes('ARM64E') &&
+  //   iosVersionMajor >= 16 &&
+  //   `${iosVersionMajor}.${iosVersionMinor}` !== '17.2'
+  // ) {
+  //   return true;
+  // }
+
+  // return false;
+}
+
+describe('messaging()', function () {
+  it('completes non-FCM remote notifications on iOS', async function () {
+    if (!Platform.ios) {
+      this.skip();
+    }
+
+    const { getRNFBTesting } = require('../../app/e2e/helpers');
+    const completed = await getRNFBTesting().completesNonFCMRemoteNotification();
+
+    completed.should.equal(true);
+  });
+
+  it('serializes string notification sounds under the iOS notification details', async function () {
+    if (!Platform.ios) {
+      this.skip();
+    }
+
+    const { getRNFBTesting } = require('../../app/e2e/helpers');
+    const message = await getRNFBTesting().serializeMessagingUserInfo({
+      aps: { sound: 'tone.aiff' },
+    });
+
+    message.notification.should.eql({ ios: { sound: 'tone.aiff' } });
+  });
+
+  it('serializes iOS sent times as epoch milliseconds', async function () {
+    if (!Platform.ios) {
+      this.skip();
+    }
+
+    const { getRNFBTesting } = require('../../app/e2e/helpers');
+    for (const timestamp of ['1522880044', 1522880044]) {
+      const message = await getRNFBTesting().serializeMessagingUserInfo({
+        'google.c.a.ts': timestamp,
+      });
+
+      message.sentTime.should.equal(1522880044000);
+    }
+  });
+
+  it('ignores malformed iOS sent times', async function () {
+    if (!Platform.ios) {
+      this.skip();
+    }
+
+    const { getRNFBTesting } = require('../../app/e2e/helpers');
+    for (const timestamp of ['', '-1', '1.5', '1522880044invalid']) {
+      const message = await getRNFBTesting().serializeMessagingUserInfo({
+        'google.c.a.ts': timestamp,
+      });
+
+      message.should.not.have.property('sentTime');
+    }
+  });
+
+  it('serializes iOS notification badges as strings', async function () {
+    if (!Platform.ios) {
+      this.skip();
+    }
+
+    const { getRNFBTesting } = require('../../app/e2e/helpers');
+    const message = await getRNFBTesting().serializeMessagingUserInfo({
+      aps: { badge: 7 },
+    });
+
+    message.notification.ios.badge.should.equal('7');
+  });
+
+  before(async function () {
+    // our device registration tests require permissions. Set them up
+    const { getMessaging, requestPermission } = messagingModular;
+    await requestPermission(getMessaging(), {
+      alert: true,
+      badge: true,
+      sound: true,
+      provisional: true,
+    });
+  });
+
+  describe('firebase v9 modular API', function () {
+    describe('getMessaging', function () {
+      it('pass app as argument', function () {
+        const { getApp } = modular;
+        const { getMessaging } = messagingModular;
+
+        const messaging = getMessaging(getApp());
+
+        messaging.constructor.name.should.be.equal('FirebaseMessagingModule');
+      });
+
+      it('no app as argument', function () {
+        const { getMessaging } = messagingModular;
+
+        const messaging = getMessaging();
+
+        messaging.constructor.name.should.be.equal('FirebaseMessagingModule');
+      });
+    });
+
+    describe('setAutoInitEnabled()', function () {
+      // These depend on `tests/firebase.json` having `messaging_auto_init_enabled` set to false the first time
+      // The setting is persisted across restarts, reset to false after for local runs where prefs are sticky
+      afterEach(async function () {
+        const { getMessaging, setAutoInitEnabled } = messagingModular;
+        await setAutoInitEnabled(getMessaging(), false);
+      });
+
+      it('throws if enabled is not a boolean', async function () {
+        const { getMessaging, setAutoInitEnabled } = messagingModular;
+        try {
+          await setAutoInitEnabled(getMessaging(), 123);
+
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'enabled' expected a boolean value");
+          return Promise.resolve();
+        }
+      });
+
+      it('sets the value', async function () {
+        const { getMessaging, isAutoInitEnabled, setAutoInitEnabled } = messagingModular;
+        should.equal(isAutoInitEnabled(getMessaging()), false);
+        await setAutoInitEnabled(getMessaging(), true);
+        should.equal(isAutoInitEnabled(getMessaging()), true);
+
+        // Set it back to the default value for future runs in re-use mode
+        await setAutoInitEnabled(getMessaging(), false);
+        should.equal(isAutoInitEnabled(getMessaging()), false);
+      });
+    });
+
+    describe('isDeviceRegisteredForRemoteMessages default state', function () {
+      it('returns true on android', function () {
+        const { getMessaging, isDeviceRegisteredForRemoteMessages } = messagingModular;
+
+        if (Platform.android) {
+          should.equal(isDeviceRegisteredForRemoteMessages(getMessaging()), true);
+        } else {
+          this.skip();
+        }
+      });
+    });
+
+    describe('remote message device register / unregister', function () {
+      it('resolves on android, remains registered', async function () {
+        const {
+          getMessaging,
+          unregisterDeviceForRemoteMessages,
+          isDeviceRegisteredForRemoteMessages,
+        } = messagingModular;
+
+        if (Platform.android) {
+          await unregisterDeviceForRemoteMessages(getMessaging());
+          should.equal(isDeviceRegisteredForRemoteMessages(getMessaging()), true);
+        } else {
+          this.skip();
+        }
+      });
+
+      it('successfully unregisters on ios', async function () {
+        const {
+          getMessaging,
+          unregisterDeviceForRemoteMessages,
+          isDeviceRegisteredForRemoteMessages,
+          registerDeviceForRemoteMessages,
+        } = messagingModular;
+
+        if (Platform.ios && !isCI) {
+          await unregisterDeviceForRemoteMessages(getMessaging());
+          should.equal(isDeviceRegisteredForRemoteMessages(getMessaging()), false);
+          aPNSCapableSimulator = await isAPNSCapableSimulator();
+          simulator = await isSimulator();
+          if (Platform.ios && (!simulator || (simulator && aPNSCapableSimulator))) {
+            await registerDeviceForRemoteMessages(getMessaging());
+            should.equal(isDeviceRegisteredForRemoteMessages(getMessaging()), true);
+          }
+        } else {
+          this.skip();
+        }
+      });
+    });
+
+    describe('hasPermission', function () {
+      it('returns true', async function () {
+        // our before block requests permission, so both should be truthy
+        const { getMessaging, hasPermission } = messagingModular;
+        should.equal(!!(await hasPermission(getMessaging())), true);
+      });
+    });
+
+    describe('requestPermission', function () {
+      it('resolves correctly for default request', async function () {
+        const { getMessaging, requestPermission } = messagingModular;
+        // our before block requests, android will always be 1
+        if (Platform.android) {
+          should.equal(await requestPermission(getMessaging()), 1);
+        } else {
+          // our default request on iOS results in "provisional" == 2
+          // but we may have granted perms by any outside method == 1
+          should.equal((await requestPermission(getMessaging(), { provisional: true })) >= 1, true);
+        }
+      });
+    });
+
+    describe('getAPNSToken', function () {
+      it('resolves null on android', async function () {
+        const { getMessaging, getAPNSToken } = messagingModular;
+        if (Platform.android) {
+          should.equal(await getAPNSToken(getMessaging()), null);
+        } else {
+          this.skip();
+        }
+      });
+
+      it('resolves on ios with token on supported simulators', async function () {
+        // Make sure we are registered for remote notifications, else no token
+        const { getMessaging, getAPNSToken, registerDeviceForRemoteMessages } = messagingModular;
+        aPNSCapableSimulator = await isAPNSCapableSimulator();
+        simulator = await isSimulator();
+        if (Platform.ios && !isCI && (!simulator || (simulator && aPNSCapableSimulator))) {
+          await registerDeviceForRemoteMessages(getMessaging());
+          apnsToken = await getAPNSToken(getMessaging());
+
+          if (!simulator || (simulator && aPNSCapableSimulator)) {
+            apnsToken.should.be.a.String();
+          } else {
+            // unsupported iOS Simulator returns null (typically,
+            // can attempt-but-fail if M1 Simulator but not macOS13+/ios16+, rare combo)
+            if (apnsToken !== null) {
+              apnsToken.should.be.a.String();
+            }
+          }
+        } else {
+          this.skip();
+        }
+      });
+    });
+
+    describe('setAPNSToken', function () {
+      it('requires a token parameter', async function () {
+        const { getMessaging, setAPNSToken } = messagingModular;
+        try {
+          setAPNSToken(getMessaging());
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'token' expected a string value");
+        }
+        try {
+          setAPNSToken(getMessaging(), 123);
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'token' expected a string value");
+          return Promise.resolve();
+        }
+      });
+
+      it('verifies type parameter is valid if specified', async function () {
+        const { getMessaging, setAPNSToken } = messagingModular;
+        try {
+          setAPNSToken(getMessaging(), 'typeparamtest', 123);
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'type' expected one of 'prod', 'sandbox', or 'unknown'");
+        }
+        try {
+          setAPNSToken(getMessaging(), 'typeparamtest', 'bogus');
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'type' expected one of 'prod', 'sandbox', or 'unknown'");
+        }
+      });
+
+      it('requires a non-empty, even-length hexadecimal token on Apple platforms', function () {
+        const { getMessaging, setAPNSToken } = messagingModular;
+        if (!Platform.ios && !Platform.macos) {
+          this.skip();
+        }
+
+        for (const token of ['', '0', 'xyz', '001z']) {
+          (() => setAPNSToken(getMessaging(), token)).should.throw(
+            Error,
+            /'token' expected a non-empty, even-length hexadecimal string/,
+          );
+        }
+      });
+
+      it('resolves on android', async function () {
+        const { getMessaging, setAPNSToken } = messagingModular;
+        if (Platform.android) {
+          should.equal(await setAPNSToken(getMessaging(), 'foo'), null);
+        } else {
+          this.skip();
+        }
+      });
+
+      it('correctly sets new token on ios', async function () {
+        const { getMessaging, getAPNSToken, setAPNSToken } = messagingModular;
+        aPNSCapableSimulator = await isAPNSCapableSimulator();
+        simulator = await isSimulator();
+        if (Platform.ios && (!simulator || (simulator && aPNSCapableSimulator))) {
+          originalAPNSToken = await getAPNSToken(getMessaging());
+          // 74657374696E67746F6B656E6D6F64756C6172 is hex for "testingtokenmodular"
+          await setAPNSToken(getMessaging(), '74657374696E67746F6B656E6D6F64756C6172', 'unknown');
+          newAPNSToken = await getAPNSToken(getMessaging());
+          newAPNSToken.should.eql('74657374696E67746F6B656E6D6F64756C6172');
+          newAPNSToken.should.not.eql(originalAPNSToken);
+          if (originalAPNSToken !== null) {
+            await setAPNSToken(getMessaging(), originalAPNSToken);
+          }
+        } else {
+          this.skip();
+        }
+      });
+    });
+
+    describe('getInitialNotification', function () {
+      it('returns null when no initial notification', async function () {
+        const { getMessaging, getInitialNotification } = messagingModular;
+        should.strictEqual(await getInitialNotification(getMessaging()), null);
+      });
+    });
+
+    describe('native messaging delegate', function () {
+      it('preserves an existing iOS Firebase Messaging delegate', async function () {
+        if (!Platform.ios) {
+          this.skip();
+        }
+
+        const { NativeModules } = require('react-native');
+        should.equal(
+          await NativeModules.RNFBTestingMessaging.messagingPreservesExistingDelegate(),
+          true,
+        );
+      });
+    });
+
+    describe('notification storage', function () {
+      it('can be disabled on android', async function () {
+        if (!Platform.android) {
+          this.skip();
+        }
+
+        const { getRNFBTesting } = require('../../app/e2e/helpers');
+        should.equal(await getRNFBTesting().messagingStoreSupportsDisabledStorage(), true);
+      });
+    });
+
+    describe('deleteToken()', function () {
+      it('generate a new token after deleting', async function () {
+        const { getMessaging, getToken, deleteToken } = messagingModular;
+        aPNSCapableSimulator = await isAPNSCapableSimulator();
+        simulator = await isSimulator();
+        if (Platform.ios && (!simulator || (simulator && aPNSCapableSimulator))) {
+          const token1 = await getToken(getMessaging());
+          should.exist(token1);
+          await deleteToken(getMessaging());
+          const token2 = await getToken(getMessaging());
+          should.exist(token2);
+          token1.should.not.eql(token2);
+        }
+      });
+
+      it('should throw Error with wrong parameter types', async function () {
+        const { getMessaging, getToken, deleteToken } = messagingModular;
+        try {
+          await deleteToken(getMessaging(), { appName: 33 });
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'appName' expected a string");
+        }
+
+        try {
+          await getToken(getMessaging(), { senderId: 33 });
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'senderId' expected a string.");
+          return Promise.resolve();
+        }
+      });
+    });
+
+    describe('installation id APIs (flag off by default)', function () {
+      it('rejects register/unregister with installation-id-not-enabled', async function () {
+        const { getMessaging, register, unregister } = messagingModular;
+        try {
+          await register(getMessaging());
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.code.should.equal('messaging/installation-id-not-enabled');
+        }
+
+        try {
+          await unregister(getMessaging());
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.code.should.equal('messaging/installation-id-not-enabled');
+          return Promise.resolve();
+        }
+      });
+
+      it('throws onRegistered/onUnregistered with installation-id-not-enabled', function () {
+        const { getMessaging, onRegistered, onUnregistered } = messagingModular;
+        (() => onRegistered(getMessaging(), () => undefined)).should.throw(
+          Error,
+          /messaging\/installation-id-not-enabled/,
+        );
+        (() => onUnregistered(getMessaging(), () => undefined)).should.throw(
+          Error,
+          /messaging\/installation-id-not-enabled/,
+        );
+      });
+    });
+
+    describe('onMessage()', function () {
+      it('throws if listener is not a function', function () {
+        const { getMessaging, onMessage } = messagingModular;
+        try {
+          onMessage(getMessaging(), {});
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'listener' expected a function");
+          return Promise.resolve();
+        }
+      });
+
+      // Disabled until FCM foreground payload delivery is re-audited in the e2e harness.
+      xit('receives messages when the app is in the foreground', async function () {
+        const { getMessaging, onMessage, registerDeviceForRemoteMessages, getToken } =
+          messagingModular;
+        const spy = sinon.spy();
+        const unsubscribe = onMessage(getMessaging(), spy);
+        if (Platform.ios) {
+          await registerDeviceForRemoteMessages(getMessaging());
+        }
+        const token = await getToken(getMessaging());
+        await TestsAPI.messaging().sendToDevice(token, {
+          data: {
+            foo: 'bar',
+            doop: 'boop',
+          },
+        });
+        await Utils.spyToBeCalledOnceAsync(spy);
+        unsubscribe();
+        spy.firstCall.args[0].should.be.an.Object();
+        spy.firstCall.args[0].data.should.be.an.Object();
+        spy.firstCall.args[0].data.foo.should.eql('bar');
+      });
+    });
+
+    describe('onTokenRefresh()', function () {
+      it('throws if listener is not a function', function () {
+        const { getMessaging, onTokenRefresh } = messagingModular;
+        try {
+          onTokenRefresh(getMessaging(), {});
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'listener' expected a function");
+          return Promise.resolve();
+        }
+      });
+    });
+
+    describe('onDeletedMessages()', function () {
+      it('throws if listener is not a function', function () {
+        const { getMessaging, onDeletedMessages } = messagingModular;
+        try {
+          onDeletedMessages(getMessaging(), 123);
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'listener' expected a function");
+          return Promise.resolve();
+        }
+      });
+    });
+
+    describe('onMessageSent()', function () {
+      it('throws if listener is not a function', function () {
+        const { getMessaging, onMessageSent } = messagingModular;
+        try {
+          onMessageSent(getMessaging(), 123);
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'listener' expected a function");
+          return Promise.resolve();
+        }
+      });
+
+      it('passes the sent message ID to the listener', async function () {
+        if (!Platform.android) {
+          this.skip();
+        }
+
+        const { getMessaging, onMessageSent } = messagingModular;
+        const spy = sinon.spy();
+        const unsubscribe = onMessageSent(getMessaging(), spy);
+
+        await NativeModules.NativeRNFBTurboApp.eventsPing('messaging_message_sent', {
+          messageId: 'message-id',
+        });
+        await Utils.spyToBeCalledOnceAsync(spy);
+
+        spy.firstCall.args[0].should.equal('message-id');
+        unsubscribe();
+      });
+    });
+
+    describe('onSendError()', function () {
+      it('throws if listener is not a function', function () {
+        const { getMessaging, onSendError } = messagingModular;
+        try {
+          onSendError(getMessaging(), '123');
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'listener' expected a function");
+          return Promise.resolve();
+        }
+      });
+    });
+
+    describe('setBackgroundMessageHandler()', function () {
+      it('throws if handler is not a function', function () {
+        const { getMessaging, setBackgroundMessageHandler } = messagingModular;
+        try {
+          setBackgroundMessageHandler(getMessaging(), '123');
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'handler' expected a function");
+          return Promise.resolve();
+        }
+      });
+    });
+
+    describe('subscribeToTopic()', function () {
+      it('throws if topic is not a string', function () {
+        const { getMessaging, subscribeToTopic } = messagingModular;
+        try {
+          subscribeToTopic(getMessaging(), 123);
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'topic' expected a string value");
+          return Promise.resolve();
+        }
+      });
+
+      it('throws if topic contains a /', function () {
+        const { getMessaging, subscribeToTopic } = messagingModular;
+        try {
+          subscribeToTopic(getMessaging(), 'foo/bar');
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql('\'topic\' must not include "/"');
+          return Promise.resolve();
+        }
+      });
+    });
+
+    describe('unsubscribeFromTopic()', function () {
+      it('throws if topic is not a string', function () {
+        const { getMessaging, unsubscribeFromTopic } = messagingModular;
+        try {
+          unsubscribeFromTopic(getMessaging(), 123);
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'topic' expected a string value");
+          return Promise.resolve();
+        }
+      });
+
+      it('throws if topic contains a /', function () {
+        const { getMessaging, unsubscribeFromTopic } = messagingModular;
+        try {
+          unsubscribeFromTopic(getMessaging(), 'foo/bar');
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql('\'topic\' must not include "/"');
+          return Promise.resolve();
+        }
+      });
+    });
+
+    describe('setDeliveryMetricsExportToBigQuery()', function () {
+      afterEach(async function () {
+        const { getMessaging, experimentalSetDeliveryMetricsExportedToBigQueryEnabled } =
+          messagingModular;
+        await experimentalSetDeliveryMetricsExportedToBigQueryEnabled(getMessaging(), false);
+      });
+
+      it('throws if enabled is not a boolean', function () {
+        const { getMessaging, experimentalSetDeliveryMetricsExportedToBigQueryEnabled } =
+          messagingModular;
+        try {
+          experimentalSetDeliveryMetricsExportedToBigQueryEnabled(getMessaging(), 123);
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'enabled' expected a boolean value");
+          return Promise.resolve();
+        }
+      });
+
+      it('sets the value', async function () {
+        const {
+          getMessaging,
+          experimentalSetDeliveryMetricsExportedToBigQueryEnabled,
+          isDeliveryMetricsExportToBigQueryEnabled,
+        } = messagingModular;
+
+        should.equal(isDeliveryMetricsExportToBigQueryEnabled(getMessaging()), false);
+        await experimentalSetDeliveryMetricsExportedToBigQueryEnabled(getMessaging(), true);
+        should.equal(isDeliveryMetricsExportToBigQueryEnabled(getMessaging()), true);
+      });
+    });
+
+    describe('setNotificationDelegationEnabled()', function () {
+      afterEach(async function () {
+        const { getMessaging, setNotificationDelegationEnabled } = messagingModular;
+        await setNotificationDelegationEnabled(getMessaging(), false);
+      });
+
+      it('throws if enabled is not a boolean', function () {
+        const { getMessaging, setNotificationDelegationEnabled } = messagingModular;
+        try {
+          setNotificationDelegationEnabled(getMessaging(), 123);
+          return Promise.reject(new Error('Did not throw Error.'));
+        } catch (e) {
+          e.message.should.containEql("'enabled' expected a boolean value");
+          return Promise.resolve();
+        }
+      });
+
+      it('sets the value', async function () {
+        const { getMessaging, setNotificationDelegationEnabled, isNotificationDelegationEnabled } =
+          messagingModular;
+
+        should.equal(isNotificationDelegationEnabled(getMessaging()), false);
+        await setNotificationDelegationEnabled(getMessaging(), true);
+        should.equal(isNotificationDelegationEnabled(getMessaging()), Platform.android);
+      });
+    });
+
+    describe('isSupported()', function () {
+      it('should return "true" if the device or browser supports Firebase Messaging', async function () {
+        const { isSupported, getMessaging } = messagingModular;
+        // For android, when the play services are available, it will return "true"
+        // iOS & web always return "true". Web can be fully implemented when the platform is supported
+        should.equal(await isSupported(getMessaging()), true);
+      });
+    });
+  });
+});

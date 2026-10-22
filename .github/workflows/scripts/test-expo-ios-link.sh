@@ -1,0 +1,438 @@
+#!/bin/bash
+# Documented-path Expo iOS *link* closer for GitHub #9158 and #9202: a
+# minimal Expo SDK 57 fixture (test-expo/) with SPM on, useFrameworks: "dynamic",
+# prebuilt RNCore on (no RCT_USE_PREBUILT_RNCORE=0, no disableSPM, no
+# forceStaticLinking, no buildReactNativeFromSource). The fixture first
+# covered the missing app-target FirebaseCore link; it now also locks the
+# duplicate-Firebase-symbol graph emitted by Expo's prebuilt-RNCore path.
+#
+# This is a *different* bug from two other RNCore issues tracked elsewhere
+# in this repo -- do not "fix" this script by touching their owning docs:
+#   - compile-time / RNFB podspecs / non-modular includes:
+#     okf-bundle/ios-rncore-podspec.md (GitHub #9200 / CPRN-237)
+#   - link-time / tests/ only / third-party pods (react-native-device-info,
+#     @invertase/react-native-apple-authentication):
+#     okf-bundle/testing/test-app-dependency-pins.md (tests/ios/Podfile's
+#     RCT_USE_PREBUILT_RNCORE=0 / RCT_USE_RN_DEP=0 pin)
+# Historical #9158 signature to stay past: undefined `_OBJC_CLASS_$_FIRApp`
+# (and/or missing app-target FirebaseCore / packageProductDependencies).
+# Regression #9202 signature: duplicate `_FIRFirebaseVersion` from both
+# libRNFBApp.a(FirebaseCore.o) and libRNFBMessaging.a(FirebaseCore.o). The
+# green graph must produce RNFB frameworks and link them with `-framework`.
+# The dynamic-framework / static-archive check below discovers and covers
+# every generated `RNFB*` CocoaPods target, not just App and Messaging.
+set -euo pipefail
+
+cd "$(dirname "$0")/../../.."
+cd test-expo
+
+log() {
+  echo "[test-expo-ios-link] $*"
+}
+
+PREBUILD_LOG="${RNFB_TEST_EXPO_PREBUILD_LOG:-/tmp/test-expo-prebuild.log}"
+XCODEBUILD_LOG="${RNFB_TEST_EXPO_XCODEBUILD_LOG:-/tmp/test-expo-xcodebuild.log}"
+PBXPROJ="ios/testexpo.xcodeproj/project.pbxproj"
+PODS_PBXPROJ="ios/Pods/Pods.xcodeproj/project.pbxproj"
+PODS_XCCONFIG="ios/Pods/Target Support Files/Pods-testexpo/Pods-testexpo.release.xcconfig"
+PODFILE="ios/Podfile"
+
+# Expo silences `pod install` stdout unless EXPO_DEBUG or CI is set
+# (see @expo/cli cocoapods.js `silent: !(EXPO_DEBUG || CI)`). Keep the
+# documented `expo prebuild` command; un-silence CocoaPods so we can see
+# whether firebase_spm.rb / rnfirebase_add_spm_core_to_app_target ran.
+log "expo prebuild --platform ios --clean (log: ${PREBUILD_LOG})"
+EXPO_DEBUG=1 npx expo prebuild --platform ios --clean 2>&1 | tee "$PREBUILD_LOG"
+
+WORKSPACE="${RNFB_TEST_EXPO_WORKSPACE:-ios/testexpo.xcworkspace}"
+SCHEME="${RNFB_TEST_EXPO_SCHEME:-testexpo}"
+
+if [[ ! -d "$WORKSPACE" ]]; then
+  log "ERROR: expected workspace not found at ${WORKSPACE} -- listing ios/ for triage"
+  ls -la ios || true
+  exit 1
+fi
+
+log "--- Expo 58 UIScene / RNFB plugin contract ---"
+SCENE_DELEGATE="ios/testexpo/SceneDelegate.swift"
+APP_DELEGATE="ios/testexpo/AppDelegate.swift"
+INFO_PLIST="ios/testexpo/Info.plist"
+for generated_file in "$SCENE_DELEGATE" "$APP_DELEGATE" "$INFO_PLIST"; do
+  if [[ ! -f "$generated_file" ]]; then
+    log "ERROR: missing ${generated_file} (Expo prebuild did not emit UIScene files)"
+    exit 1
+  fi
+done
+if ! grep -q 'class SceneDelegate: ExpoAppSceneDelegate' "$SCENE_DELEGATE"; then
+  log "ERROR: SceneDelegate is not the Expo 58 ExpoAppSceneDelegate stub"
+  exit 1
+fi
+# SceneDelegate may contain the tagged Auth reCAPTCHA openURLContexts callback (Auth.auth().canHandle).
+# Process-global Firebase initialization must still live only in AppDelegate.
+if grep -qE 'FirebaseApp\.configure\(|\[FIRApp[[:space:]]+configure\]|FIRApp\.configure' "$SCENE_DELEGATE"; then
+  log "ERROR: FirebaseApp.configure / FIRApp configure in SceneDelegate (must stay in AppDelegate)"
+  exit 1
+fi
+if ! grep -q '@react-native-firebase/auth-openURL' "$SCENE_DELEGATE"; then
+  log "ERROR: missing Auth reCAPTCHA openURLContexts patch tag in SceneDelegate"
+  exit 1
+fi
+if ! grep -q 'Auth\.auth()\.canHandle' "$SCENE_DELEGATE"; then
+  log "ERROR: SceneDelegate Auth patch must call Auth.auth().canHandle"
+  exit 1
+fi
+firebase_configure_count="$(grep -c 'FirebaseApp.configure()' "$APP_DELEGATE" || true)"
+if [[ "$firebase_configure_count" -ne 1 ]]; then
+  log "ERROR: expected exactly one FirebaseApp.configure() in AppDelegate, found ${firebase_configure_count}"
+  exit 1
+fi
+if ! grep -q 'RNFBAppCheckModule.sharedInstance()' "$APP_DELEGATE"; then
+  log "ERROR: App Check provider factory missing from AppDelegate (scene AppDelegate anchor was not found)"
+  exit 1
+fi
+factory_line="$(grep -n 'RNFBAppCheckModule.sharedInstance()' "$APP_DELEGATE" | head -1 | cut -d: -f1)"
+configure_line="$(grep -n 'FirebaseApp.configure()' "$APP_DELEGATE" | head -1 | cut -d: -f1)"
+if [[ -z "$factory_line" || -z "$configure_line" || "$factory_line" -gt "$configure_line" ]]; then
+  log "ERROR: App Check provider factory must be registered before FirebaseApp.configure() (factory line ${factory_line:-missing}, configure line ${configure_line:-missing})"
+  exit 1
+fi
+if ! awk '/UIApplicationSupportsMultipleScenes/{getline; if ($0 ~ /<false\/>/) found=1} END{exit !found}' "$INFO_PLIST"; then
+  log "ERROR: UIApplicationSupportsMultipleScenes is not false (single-scene contract)"
+  exit 1
+fi
+if ! grep -q 'UISceneDelegateClassName' "$INFO_PLIST"; then
+  log "ERROR: Info.plist missing UIScene manifest entries"
+  exit 1
+fi
+log "PASS: Expo SceneDelegate has Auth reCAPTCHA canHandle callback; AppDelegate owns exactly one configure after App Check; single-scene manifest"
+log "--- end Expo 58 UIScene / RNFB plugin contract ---"
+
+# Diagnosis: did #9164's rnfirebase_add_spm_core_to_app_target run during
+# Expo CNG `pod install`, and did the resulting pbxproj keep FirebaseCore on
+# the app target? Do not "fix" a wipe by hand-editing pbxproj or adding a
+# custom Podfile post_integrate -- that is not the documented Expo path.
+log "--- SPM helper / pbxproj diagnosis ---"
+if grep -E '\[react-native-firebase\]' "$PREBUILD_LOG" >/dev/null 2>&1; then
+  log "pod/prebuild lines matching [react-native-firebase]:"
+  grep -E '\[react-native-firebase\]' "$PREBUILD_LOG" || true
+else
+  log "NO [react-native-firebase] lines in prebuild log (firebase_spm.rb may not have evaluated)"
+fi
+if grep -E 'Linking FirebaseCore|Repairing FirebaseCore|Couldn.t link FirebaseCore|Couldn.t hook CocoaPods|SPM not available|SPM disabled' "$PREBUILD_LOG" >/dev/null 2>&1; then
+  log "helper-specific lines:"
+  grep -E 'Linking FirebaseCore|Repairing FirebaseCore|Couldn.t link FirebaseCore|Couldn.t hook CocoaPods|SPM not available|SPM disabled|Using SPM' "$PREBUILD_LOG" || true
+else
+  log "NO rnfirebase_add_spm_core_to_app_target success/warn lines in prebuild log"
+fi
+if [[ -f "$PBXPROJ" ]]; then
+  if grep -q 'packageProductDependencies' "$PBXPROJ"; then
+    log "pbxproj HAS packageProductDependencies"
+    grep -n 'packageProductDependencies\|XCSwiftPackageProductDependency\|productName = FirebaseCore\|XCRemoteSwiftPackageReference' "$PBXPROJ" | head -80 || true
+  else
+    log "pbxproj HAS NO packageProductDependencies (helper did not stick, or never ran)"
+  fi
+  if grep -q '\[CP\] Embed Pods Frameworks' "$PBXPROJ"; then
+    log "pbxproj HAS [CP] Embed Pods Frameworks (helper target filter)"
+  else
+    log "pbxproj HAS NO [CP] Embed Pods Frameworks -- helper would skip every native target"
+  fi
+  if grep -q '\[RNFB\] Embed Firebase SPM Frameworks' "$PBXPROJ"; then
+    log "pbxproj HAS [RNFB] Embed Firebase SPM Frameworks (post_integrate hook did mutate app project)"
+  else
+    log "pbxproj HAS NO [RNFB] Embed Firebase SPM Frameworks"
+  fi
+  if grep -E 'FirebaseCore.*PBXBuildFile|productName = FirebaseCore' "$PBXPROJ" >/dev/null 2>&1; then
+    log "pbxproj HAS FirebaseCore productName / PBXBuildFile hits:"
+    grep -n 'productName = FirebaseCore\|FirebaseCore.framework in Frameworks' "$PBXPROJ" | head -40 || true
+  else
+    log "pbxproj HAS NO FirebaseCore PBXBuildFile / productName (app target never got FirebaseCore)"
+  fi
+else
+  log "ERROR: missing ${PBXPROJ}"
+fi
+log "--- end diagnosis ---"
+
+log "--- generated linkage diagnosis ---"
+if [[ -f "$PODFILE" ]]; then
+  log "Podfile linkage / prebuilt-RNCore settings:"
+  grep -n -E 'use_frameworks|RCT_USE_PREBUILT_RNCORE|buildReactNativeFromSource|RNFirebaseDisableSPM|forceStaticLinking' "$PODFILE" || true
+fi
+if grep -E -i 'downgrad|prebuilt|build type|static librar|RNFB(App|Messaging)' "$PREBUILD_LOG" >/dev/null 2>&1; then
+  log "Expo/CocoaPods prebuilt and build-type lines:"
+  grep -n -E -i -m 120 'downgrad|prebuilt|build type|static librar|RNFB(App|Messaging)' "$PREBUILD_LOG" || true
+else
+  log "NO Expo/CocoaPods downgrade or RNFB build-type lines in prebuild log"
+fi
+if [[ -f "$PODS_PBXPROJ" ]]; then
+  log "Pods product references / product types for RNFBApp and RNFBMessaging:"
+  grep -n -E -m 120 'RNFB(App|Messaging)|productType = "com.apple.product-type.(framework|library.static)"' "$PODS_PBXPROJ" || true
+else
+  log "ERROR: missing ${PODS_PBXPROJ} -- product type and file reference checks cannot run"
+  exit 1
+fi
+if [[ -f "$PODS_XCCONFIG" ]]; then
+  log "app target CocoaPods link inputs:"
+  grep -n -E -m 20 'OTHER_LDFLAGS|RNFB(App|Messaging)' "$PODS_XCCONFIG" || true
+else
+  log "ERROR: missing ${PODS_XCCONFIG} -- linker flags cannot be checked"
+  exit 1
+fi
+log "--- end generated linkage diagnosis ---"
+
+pod_target_product_type() {
+  local target_name="$1"
+  awk -v target_name="$target_name" '
+    /\/\* Begin PBXNativeTarget section \*\// { in_native_targets = 1; next }
+    /\/\* End PBXNativeTarget section \*\// { in_native_targets = 0 }
+    in_native_targets && index($0, "/* " target_name " */ = {") > 0 { in_target = 1 }
+    in_target && /productType = / {
+      value = $0
+      sub(/^.*productType = /, "", value)
+      sub(/;.*$/, "", value)
+      gsub(/"/, "", value)
+      print value
+      exit
+    }
+    in_target && /^[[:space:]]*};[[:space:]]*$/ { in_target = 0 }
+  ' "$PODS_PBXPROJ"
+}
+
+# Validates that a PBXFileReference entry for <target>.framework is present and
+# complete. Parsing is scoped to the PBXFileReference section; the entry text is
+# accumulated until its closing }; so the check works for both compact
+# single-line and multi-line CocoaPods formats. All comparisons use index()
+# (fixed-string) to avoid dynamic regex on caller-controlled target names.
+pod_framework_file_ref_ok() {
+  local target_name="$1"
+  awk -v target_name="$target_name" '
+    /\/\* Begin PBXFileReference section \*\// { in_section = 1; next }
+    /\/\* End PBXFileReference section \*\// { in_section = 0; in_entry = 0; buf = "" }
+    in_section && index($0, "/* " target_name " */ = {") > 0 {
+      buf = $0
+      if (index(buf, "isa = PBXFileReference;") > 0 &&
+          index(buf, "explicitFileType = wrapper.framework;") > 0 &&
+          index(buf, "path = " target_name ".framework;") > 0) {
+        print "ok"; exit
+      }
+      in_entry = 1; next
+    }
+    in_entry { buf = buf " " $0 }
+    in_entry && /^[[:space:]]*};[[:space:]]*$/ {
+      if (index(buf, "isa = PBXFileReference;") > 0 &&
+          index(buf, "explicitFileType = wrapper.framework;") > 0 &&
+          index(buf, "path = " target_name ".framework;") > 0) {
+        print "ok"
+        exit
+      }
+      in_entry = 0
+    }
+  ' "$PODS_PBXPROJ"
+}
+
+# Discover every generated `RNFB<Name>` PBXNativeTarget from the Pods
+# project, scoped to the PBXNativeTarget section only (other sections, e.g.
+# PBXBuildFile / PBXFrameworksBuildPhase, reference names like
+# "RNFBApp.framework in Frameworks" that would false-match if unscoped).
+# POSIX/BSD-awk-safe: no gawk-only match()-with-capture-array, just
+# sub()/index() the way pod_target_product_type / pod_framework_file_ref_ok
+# already do above.
+discover_rnfb_targets() {
+  awk '
+    /\/\* Begin PBXNativeTarget section \*\// { in_section = 1; next }
+    /\/\* End PBXNativeTarget section \*\// { in_section = 0 }
+    in_section && /\/\* RNFB[A-Za-z0-9]+ \*\/ = \{/ {
+      line = $0
+      sub(/^.*\/\* /, "", line)
+      sub(/ \*\/ = \{.*$/, "", line)
+      print line
+    }
+  ' "$PODS_PBXPROJ" | sort -u
+}
+
+rnfb_targets=()
+while IFS= read -r rnfb_target_name; do
+  [[ -n "$rnfb_target_name" ]] && rnfb_targets+=("$rnfb_target_name")
+done < <(discover_rnfb_targets)
+
+if [[ "${#rnfb_targets[@]}" -eq 0 ]]; then
+  log "ERROR: discovered zero RNFB* targets in ${PODS_PBXPROJ} -- this almost certainly means the discovery pattern broke, not that there are no RNFB pods"
+  exit 1
+fi
+
+log "discovered RNFB targets: ${rnfb_targets[*]}"
+
+has_rnfb_app=0
+has_rnfb_messaging=0
+for rnfb_target_name in "${rnfb_targets[@]}"; do
+  [[ "$rnfb_target_name" == "RNFBApp" ]] && has_rnfb_app=1
+  [[ "$rnfb_target_name" == "RNFBMessaging" ]] && has_rnfb_messaging=1
+done
+if [[ "$has_rnfb_app" -ne 1 || "$has_rnfb_messaging" -ne 1 ]]; then
+  log "ERROR: discovery did not find both RNFBApp and RNFBMessaging (found: ${rnfb_targets[*]}) -- these two ship in every graph, so this is a discovery bug, not an empty RNFB graph"
+  exit 1
+fi
+
+for rnfb_target in "${rnfb_targets[@]}"; do
+  product_type="$(pod_target_product_type "$rnfb_target")"
+  if [[ "$product_type" != "com.apple.product-type.framework" ]]; then
+    log "ERROR: ${rnfb_target} generated with wrong product type '${product_type:-missing}' (expected dynamic framework)"
+    exit 1
+  fi
+  if [[ "$(pod_framework_file_ref_ok "$rnfb_target")" != "ok" ]]; then
+    log "ERROR: ${rnfb_target} framework product reference is missing from Pods.xcodeproj"
+    exit 1
+  fi
+done
+
+app_ldflags="$(grep '^OTHER_LDFLAGS = ' "$PODS_XCCONFIG" || true)"
+for rnfb_target in "${rnfb_targets[@]}"; do
+  if grep -Fq -- "-l\"${rnfb_target}\"" <<<"$app_ldflags"; then
+    log "ERROR: app link inputs still use static library -l\"${rnfb_target}\""
+    exit 1
+  fi
+  if ! grep -Fq -- "-framework \"${rnfb_target}\"" <<<"$app_ldflags"; then
+    log "ERROR: app link inputs are missing -framework \"${rnfb_target}\""
+    exit 1
+  fi
+done
+log "generated RNFB products/link inputs are dynamic frameworks"
+
+export SKIP_BUNDLING=1
+export RCT_NO_LAUNCH_PACKAGER=1
+
+# Keep Release as the documented-path closer. Debug historically surfaces
+# undefined `_OBJC_CLASS_$_FIRApp` from AppDelegate.o (the #9158 signature);
+# Release reaches the #9202 duplicate `_FIRFirebaseVersion` graph.
+# Prefer a simulator destination over bare -sdk iphonesimulator so xcodebuild
+# does not default to a foreign arch (x86_64 on Apple Silicon).
+HOST_ARCH="$(uname -m)"
+log "xcodebuild build (iOS Simulator, unsigned, Release, arch=${HOST_ARCH}) (log: ${XCODEBUILD_LOG})"
+xcodebuild_args=(
+  ARCHS="${HOST_ARCH}"
+  VALID_ARCHS="${HOST_ARCH}"
+  ONLY_ACTIVE_ARCH=YES
+  CC=clang CPLUSPLUS=clang++
+  -workspace "$WORKSPACE"
+  -scheme "$SCHEME"
+  -configuration Release
+  -destination 'generic/platform=iOS Simulator'
+  CODE_SIGNING_ALLOWED=NO
+  CODE_SIGNING_REQUIRED=NO
+  CODE_SIGN_IDENTITY=""
+  build
+)
+set +e
+if command -v xcbeautify >/dev/null 2>&1; then
+  xcodebuild "${xcodebuild_args[@]}" 2>&1 | tee "$XCODEBUILD_LOG" | xcbeautify
+  xcodebuild_status=${PIPESTATUS[0]}
+else
+  xcodebuild "${xcodebuild_args[@]}" 2>&1 | tee "$XCODEBUILD_LOG"
+  xcodebuild_status=${PIPESTATUS[0]}
+fi
+set -e
+
+log "--- app link-result diagnosis ---"
+grep -n -E -m 120 'libRNFB(App|Messaging)\.a|RNFB(App|Messaging)\.framework|_FIRFirebaseVersion|FirebaseCore\.o' "$XCODEBUILD_LOG" || true
+log "--- end app link-result diagnosis ---"
+
+if [[ "$xcodebuild_status" -ne 0 ]]; then
+  if grep -q "duplicate symbol '_FIRFirebaseVersion'" "$XCODEBUILD_LOG"; then
+    log "ERROR: #9202 duplicate _FIRFirebaseVersion signature remains"
+  elif grep -q '_OBJC_CLASS_\$_FIRApp' "$XCODEBUILD_LOG"; then
+    log "ERROR: #9158 FIRApp app-target link failure returned"
+  elif grep -q '_OBJC_CLASS_\$_RCTEventEmitter' "$XCODEBUILD_LOG"; then
+    log "ERROR: RCTEventEmitter link failure returned"
+  elif grep -E -q 'CompileC|CompileSwift|fatal error:| error:' "$XCODEBUILD_LOG"; then
+    log "ERROR: xcodebuild failed during compilation; inspect ${XCODEBUILD_LOG}"
+  else
+    log "ERROR: xcodebuild failed without a known RNFB link signature; inspect ${XCODEBUILD_LOG}"
+  fi
+  exit "$xcodebuild_status"
+fi
+
+if grep -q "duplicate symbol '_FIRFirebaseVersion'" "$XCODEBUILD_LOG" ||
+   grep -E -q 'libRNFB[A-Za-z0-9]+\.a.*FirebaseCore\.o' "$XCODEBUILD_LOG"; then
+  log "ERROR: xcodebuild passed but the #9202 static-archive signature remains in its log"
+  exit 1
+fi
+
+log "PASS: Expo documented path links RNFBApp/RNFBMessaging as frameworks without duplicate Firebase symbols"
+
+# #9322: without an explicit top-level spm_dependency declaration on
+# RNFBAnalytics.podspec / RNFBMessaging.podspec (see the comments there for
+# the full writeup, including what's confirmed vs. still an open question),
+# GoogleUtilities classes (GULNetwork, GULReachabilityChecker, etc.) end up
+# compiled privately into both RNFBAnalytics.framework and
+# RNFBMessaging.framework instead of one shared dynamic framework, and
+# collide at runtime once both are loaded in-process.
+#
+# Requires @react-native-firebase/analytics alongside messaging in
+# test-expo/package.json to actually exercise both sides of the graph.
+log "--- #9322 GoogleUtilities dedupe diagnosis ---"
+BUILT_PRODUCTS_DIR="$(grep -oE '/[^ ]*/Build/Products/[A-Za-z0-9_.-]+' "$XCODEBUILD_LOG" | head -1 || true)"
+if [[ -z "$BUILT_PRODUCTS_DIR" || ! -d "$BUILT_PRODUCTS_DIR" ]]; then
+  log "ERROR: could not determine BUILT_PRODUCTS_DIR from xcodebuild log for #9322 check"
+  exit 1
+fi
+
+nine322_classes=(
+  GULNetwork
+  GULMutableDictionary
+  GULNetworkURLSession
+  GULNetworkURLSessionWeakHolder
+  GULSessionDeallocTracker
+  GULReachabilityChecker
+  GULSwizzler
+  GoogleUtilities_GoogleUtilities_Network_SWIFTPM_MODULE_BUNDLER_FINDER
+  GoogleUtilities_GoogleUtilities_Reachability_SWIFTPM_MODULE_BUNDLER_FINDER
+)
+
+nine322_work_dir="$(mktemp -d)"
+trap 'rm -rf "$nine322_work_dir"' EXIT
+
+while IFS= read -r fw_dir; do
+  fw_name="$(basename "$fw_dir" .framework)"
+  bin="$fw_dir/$fw_name"
+  [[ -f "$bin" ]] || continue
+  fw_syms="$(nm -gU "$bin" 2>/dev/null || true)"
+  [[ -z "$fw_syms" ]] && continue
+  for class_name in "${nine322_classes[@]}"; do
+    if grep -qE '_OBJC_CLASS_\$_'"${class_name}"'$' <<<"$fw_syms"; then
+      echo "$fw_name" >>"${nine322_work_dir}/${class_name}.txt"
+    fi
+  done
+done < <(find "$BUILT_PRODUCTS_DIR" -type d -name "*.framework" ! -path "*/*.app/*" 2>/dev/null)
+
+nine322_failed=0
+for class_name in "${nine322_classes[@]}"; do
+  owners_file="${nine322_work_dir}/${class_name}.txt"
+  if [[ ! -f "$owners_file" ]]; then
+    log "ERROR: #9322 -- ${class_name} not defined in any built framework"
+    nine322_failed=1
+    continue
+  fi
+  owner_count="$(wc -l <"$owners_file" | tr -d ' ')"
+  owners="$(tr '\n' ' ' <"$owners_file")"
+  if [[ "$owner_count" -ne 1 ]]; then
+    log "ERROR: #9322 -- expected exactly 1 framework defining ${class_name}, found ${owner_count}: ${owners}"
+    nine322_failed=1
+    continue
+  fi
+  case "$owners" in
+    RNFB*)
+      log "ERROR: #9322 -- ${class_name} is privately duplicated into ${owners} instead of a shared framework"
+      nine322_failed=1
+      ;;
+    *)
+      log "ok: ${class_name} shared in ${owners}"
+      ;;
+  esac
+done
+log "--- end #9322 GoogleUtilities dedupe diagnosis ---"
+
+if [[ "$nine322_failed" -ne 0 ]]; then
+  log "ERROR: #9322 GoogleUtilities duplicate-class regression detected"
+  exit 1
+fi
+
+log "PASS: no RNFB* framework privately duplicates a shared GoogleUtilities class (#9322)"

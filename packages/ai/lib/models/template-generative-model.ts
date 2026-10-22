@@ -1,0 +1,123 @@
+/**
+ * @license
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import {
+  templateGenerateContent,
+  templateGenerateContentStream,
+} from '../methods/generate-content';
+import {
+  GenerateContentResult,
+  RequestOptions,
+  SingleRequestOptions,
+  StartTemplateChatParams,
+  TemplateRequest,
+} from '../types';
+import { AI, GenerateContentStreamResult } from '../public-types';
+import { ApiSettings } from '../types/internal';
+import { mergeRequestOptions } from '../requests/request-options';
+import { initApiSettings } from './utils';
+import { TemplateChatSession, TemplateChatSessionImpl } from '../methods/chat-session';
+
+/**
+ * {@link GenerativeModel} APIs that execute on a server-side template.
+ *
+ * This class should only be instantiated with {@link getTemplateGenerativeModel}.
+ *
+ * @beta
+ */
+export class TemplateGenerativeModel {
+  /**
+   * @internal
+   */
+  _apiSettings: ApiSettings;
+
+  /**
+   * Additional options to use when making requests.
+   */
+  requestOptions?: RequestOptions;
+
+  /**
+   * @hideconstructor
+   */
+  constructor(ai: AI, requestOptions?: RequestOptions) {
+    this.requestOptions = requestOptions || {};
+    this._apiSettings = initApiSettings(ai);
+  }
+
+  /**
+   * Makes a single non-streaming call to the model and returns an object
+   * containing a single {@link GenerateContentResponse}.
+   *
+   * @param request - The request parameters for using a server prompt template.
+   * @param singleRequestOptions - Optional. Options to use for this request.
+   *
+   * @beta
+   */
+  async generateContent(
+    request: TemplateRequest,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentResult> {
+    return templateGenerateContent(
+      this._apiSettings,
+      request.templateId,
+      {
+        inputs: request.templateVariables,
+        ...(request.toolConfig !== undefined && { toolConfig: request.toolConfig }),
+      },
+      mergeRequestOptions(this.requestOptions, singleRequestOptions),
+    );
+  }
+
+  /**
+   * Makes a single streaming call to the model and returns an object
+   * containing an iterable stream that iterates over all chunks in the
+   * streaming response as well as a promise that returns the final aggregated
+   * response.
+   *
+   * @param request - The request parameters for using a server prompt template.
+   * @param singleRequestOptions - Optional. Options to use for this request.
+   *
+   * @beta
+   */
+  async generateContentStream(
+    request: TemplateRequest,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentStreamResult> {
+    return templateGenerateContentStream(
+      this._apiSettings,
+      request.templateId,
+      {
+        inputs: request.templateVariables,
+        ...(request.toolConfig !== undefined && { toolConfig: request.toolConfig }),
+      },
+      mergeRequestOptions(this.requestOptions, singleRequestOptions),
+    );
+  }
+
+  /**
+   * Starts a {@link TemplateChatSession} that will use this template to
+   * respond to messages.
+   *
+   * @param params - Configurations for the chat, including the template
+   * ID and input variables.
+   *
+   * @beta
+   */
+  startChat(params: StartTemplateChatParams): TemplateChatSession {
+    return new TemplateChatSessionImpl(this._apiSettings, params, this.requestOptions);
+  }
+}

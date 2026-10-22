@@ -1,0 +1,274 @@
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+const { PATH } = require('./helpers');
+
+describe('storage() modular', function () {
+  describe('modular', function () {
+    describe('getStorage', function () {
+      it('pass app as argument', function () {
+        const { getApp } = modular;
+        const { getStorage } = storageModular;
+
+        const storage = getStorage(getApp());
+
+        storage.constructor.name.should.be.equal('FirebaseStorageModule');
+      });
+
+      it('no app as argument', function () {
+        const { getStorage } = storageModular;
+
+        const storage = getStorage();
+
+        storage.constructor.name.should.be.equal('FirebaseStorageModule');
+      });
+    });
+
+    it('supports specifying a bucket', async function () {
+      const { getStorage } = storageModular;
+      const bucket = 'gs://react-native-firebase-testing';
+      const defaultInstance = getStorage();
+      defaultInstance.app.name.should.equal('[DEFAULT]');
+      should.equal(
+        defaultInstance._customUrlOrRegion,
+        'gs://react-native-firebase-testing.appspot.com',
+      );
+      getStorage().app.name.should.equal('[DEFAULT]');
+      const instanceForBucket = getStorage(null, bucket);
+      instanceForBucket._customUrlOrRegion.should.equal(bucket);
+    });
+
+    it('throws an error if an invalid bucket url is provided', async function () {
+      const { getStorage } = storageModular;
+      const bucket = 'invalid://react-native-firebase-testing';
+      try {
+        getStorage(null, bucket);
+        return Promise.reject(new Error('Did not throw.'));
+      } catch (error) {
+        error.message.should.containEql("bucket url must be a string and begin with 'gs://'");
+        return Promise.resolve();
+      }
+    });
+
+    // FIXME on android this is unathorized against emulator but works on iOS?
+    xit('uploads to a custom bucket when specified', async function () {
+      if (Platform.ios) {
+        const { getStorage, ref, uploadString, StringFormat, TaskState } = storageModular;
+        const jsonDerulo = JSON.stringify({ foo: 'bar' });
+        const bucket = 'gs://react-native-firebase-testing';
+        const storage = getStorage(null, bucket);
+        const storageReference = ref(storage, `${PATH}/putStringCustomBucket.json`);
+        const uploadTaskSnapshot = await uploadString(
+          storageReference,
+          jsonDerulo,
+          StringFormat.RAW,
+          {
+            contentType: 'application/json',
+          },
+        );
+
+        uploadTaskSnapshot.state.should.eql(TaskState.SUCCESS);
+        uploadTaskSnapshot.bytesTransferred.should.eql(uploadTaskSnapshot.totalBytes);
+        uploadTaskSnapshot.metadata.should.be.an.Object();
+      } else {
+        this.skip();
+      }
+    });
+  });
+
+  describe('ref', function () {
+    it('uses default path if none provided', async function () {
+      const { getStorage, ref } = storageModular;
+      const storageRef = ref(getStorage());
+      storageRef.fullPath.should.equal('/');
+    });
+
+    it('accepts a custom path', async function () {
+      const { getStorage, ref } = storageModular;
+      const storageRef = ref(getStorage(), 'foo/bar/baz.png');
+
+      storageRef.fullPath.should.equal('foo/bar/baz.png');
+    });
+
+    it('strips leading / from custom path', async function () {
+      const { getStorage, ref } = storageModular;
+      const storageRef = ref(getStorage(), '/foo/bar/baz.png');
+      storageRef.fullPath.should.equal('foo/bar/baz.png');
+    });
+
+    it('throws an error if custom path not a string', async function () {
+      try {
+        const { getStorage, ref } = storageModular;
+        ref(getStorage(), { derp: true });
+
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql("'path' must be a string value");
+        return Promise.resolve();
+      }
+    });
+  });
+
+  describe('ref with full URL (gs:// or https://)', function () {
+    it('accepts a gs url', async function () {
+      const { getStorage, ref } = storageModular;
+
+      const url = 'gs://foo/bar/baz.png';
+      const refObj = ref(getStorage(), url);
+
+      refObj.toString().should.equal(url);
+    });
+
+    it('accepts a https url', async function () {
+      const { getStorage, ref } = storageModular;
+
+      const url =
+        'https://firebasestorage.googleapis.com/v0/b/react-native-firebase-testing.appspot.com/o/1mbTestFile.gif?alt=media';
+      const refObj = ref(getStorage(), url);
+      refObj.bucket.should.equal('react-native-firebase-testing.appspot.com');
+      refObj.name.should.equal('1mbTestFile.gif');
+      refObj
+        .toString()
+        .should.equal('gs://react-native-firebase-testing.appspot.com/1mbTestFile.gif');
+    });
+
+    it('accepts a https encoded url', async function () {
+      const { getStorage, ref } = storageModular;
+
+      const url =
+        'https%3A%2F%2Ffirebasestorage.googleapis.com%2Fv0%2Fb%2Freact-native-firebase-testing.appspot.com%2Fo%2F1mbTestFile.gif%3Falt%3Dmedia';
+      const refObj = ref(getStorage(), url);
+      refObj.bucket.should.equal('react-native-firebase-testing.appspot.com');
+      refObj.name.should.equal('1mbTestFile.gif');
+      refObj
+        .toString()
+        .should.equal('gs://react-native-firebase-testing.appspot.com/1mbTestFile.gif');
+    });
+
+    it('throws an error if https url could not be parsed', async function () {
+      try {
+        const { getStorage, ref } = storageModular;
+
+        ref(getStorage(), 'https://invertase.io');
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql("unable to parse 'url'");
+        return Promise.resolve();
+      }
+    });
+
+    it('accepts a gs url without a fullPath', async function () {
+      const { getStorage, ref } = storageModular;
+
+      const url = 'gs://some-bucket';
+      const refObj = ref(getStorage(), url);
+      refObj.toString().should.equal(url);
+    });
+
+    it('throws a path error if argument is not a string', async function () {
+      try {
+        const { getStorage, ref } = storageModular;
+
+        ref(getStorage(), { derp: true });
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql("'path' must be a string value");
+        return Promise.resolve();
+      }
+    });
+
+    it('throws an error if url does not start with gs:// or https://', async function () {
+      try {
+        const { getStorage, ref } = storageModular;
+
+        ref(getStorage(), 'bs://foo/bar/cat.gif');
+
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql("begin with 'gs://'");
+        return Promise.resolve();
+      }
+    });
+  });
+
+  describe('setMaxOperationRetryTime', function () {
+    it('should set', async function () {
+      const { getStorage, setMaxOperationRetryTime } = storageModular;
+      await setMaxOperationRetryTime(getStorage(), 120000);
+      getStorage().maxOperationRetryTime.should.equal(120000);
+      await setMaxOperationRetryTime(getStorage(), 100000);
+      getStorage().maxOperationRetryTime.should.equal(100000);
+    });
+
+    it('throws if time is not a number value', async function () {
+      try {
+        const { getStorage, setMaxOperationRetryTime } = storageModular;
+
+        await setMaxOperationRetryTime(getStorage(), 'im a teapot');
+        return Promise.reject(new Error('Did not throw'));
+      } catch (error) {
+        error.message.should.containEql("'time' must be a number value");
+        return Promise.resolve();
+      }
+    });
+  });
+
+  describe('setMaxUploadRetryTime', function () {
+    it('should set', async function () {
+      const { getStorage, setMaxUploadRetryTime } = storageModular;
+      const storage = getStorage();
+      await setMaxUploadRetryTime(storage, 600000);
+      storage.maxUploadRetryTime.should.equal(600000);
+      await setMaxUploadRetryTime(storage, 120000);
+      storage.maxUploadRetryTime.should.equal(120000);
+    });
+
+    it('throws if time is not a number value', async function () {
+      try {
+        const { getStorage, setMaxUploadRetryTime } = storageModular;
+
+        await setMaxUploadRetryTime(getStorage(), 'im a teapot');
+        return Promise.reject(new Error('Did not throw'));
+      } catch (error) {
+        error.message.should.containEql("'time' must be a number value");
+        return Promise.resolve();
+      }
+    });
+  });
+
+  describe('setMaxDownloadRetryTime', function () {
+    it('should set', async function () {
+      const { getStorage, setMaxDownloadRetryTime } = storageModular;
+      const storage = getStorage();
+      await setMaxDownloadRetryTime(storage, 600000);
+      storage.maxDownloadRetryTime.should.equal(600000);
+      await setMaxDownloadRetryTime(storage, 120000);
+      storage.maxDownloadRetryTime.should.equal(120000);
+    });
+
+    it('throws if time is not a number value', async function () {
+      try {
+        const { getStorage, setMaxDownloadRetryTime } = storageModular;
+
+        await setMaxDownloadRetryTime(getStorage(), 'im a teapot');
+        return Promise.reject(new Error('Did not throw'));
+      } catch (error) {
+        error.message.should.containEql("'time' must be a number value");
+        return Promise.resolve();
+      }
+    });
+  });
+});

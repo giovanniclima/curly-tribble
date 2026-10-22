@@ -1,0 +1,81 @@
+{
+  "name": "@react-native-firebase/installations",
+  "version": "27.0.0",
+  "author": "Invertase <oss@invertase.io> (http://invertase.io)",
+  "description": "React Native Firebase - Installations",
+  "main": "./dist/module/index.js",
+  "types": "./dist/typescript/lib/index.d.ts",
+  "codegenConfig": {
+    "name": "RNFBInstallationsTurboModules",
+    "type": "modules",
+    "jsSrcsDir": "specs",
+    "includesGeneratedCode": true,
+    "android": {
+      "javaPackageName": "io.invertase.firebase.installations"
+    },
+    "ios": {
+      "modulesProvider": {
+        "NativeRNFBTurboInstallations": "RNFBInstallationsModule"
+      }
+    }
+  },
+  "scripts": {
+    "build": "genversion --esm --semi lib/version.ts",
+    "build:clean": "rimraf android/build && rimraf ios/build",
+    "compile": "bob build",
+    "prepare": "yarn run build && yarn compile",
+    "codegen": "yarn android:codegen && yarn ios:codegen",
+    "android:codegen": "node ../../scripts/codegen-package.mjs installations android",
+    "ios:codegen": "node ../../scripts/codegen-package.mjs installations ios"
+  },
+  "homepage": "https://rnfirebase.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/invertase/react-native-firebase",
+    "directory": "packages/installations"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "react",
+    "react-native",
+    "firebase",
+    "installations"
+  ],
+  "peerDependencies": {
+    "@react-native-firebase/app": "27.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@react-native-firebase/app": "27.0.0",
+    "react-native-builder-bob": "^0.40.13"
+  },
+  "exports": {
+    ".": {
+      "source": "./lib/index.ts",
+      "types": "./dist/typescript/lib/index.d.ts",
+      "default": "./dist/module/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "react-native-builder-bob": {
+    "source": "lib",
+    "output": "dist",
+    "targets": [
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "typescript",
+        {
+          "tsc": "../../node_modules/.bin/tsc"
+        }
+      ]
+    ]
+  }
+}

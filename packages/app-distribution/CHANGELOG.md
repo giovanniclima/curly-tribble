@@ -1,0 +1,882 @@
+# Change Log
+
+All notable changes to this project will be documented in this file.
+See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
+
+## [27.0.0](https://github.com/invertase/react-native-firebase/compare/v26.4.0...v27.0.0) (2026-10-19)
+
+### ⚠ BREAKING CHANGES
+
+- **app, sdk:** bump Firebase Android 35, Apple 13, and JS 13
+
+### Features
+
+- **app, sdk:** bump Firebase Android 35, Apple 13, and JS 13 ([0ca03d1](https://github.com/invertase/react-native-firebase/commit/0ca03d11b0c271fb37cfbee8a0c3074a21969f0b))
+
+## [26.4.0](https://github.com/invertase/react-native-firebase/compare/v26.3.3...v26.4.0) (2026-09-05)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [26.3.3](https://github.com/invertase/react-native-firebase/compare/v26.3.2...v26.3.3) (2026-09-01)
+
+### Reverts
+
+- Revert "chore(release): release packages" ([0a85268](https://github.com/invertase/react-native-firebase/commit/0a85268ae21c706cf1392eaa5b088e85c3273cb7))
+
+## [26.3.2](https://github.com/invertase/react-native-firebase/compare/v26.3.1...v26.3.2) (2026-08-21)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [26.3.1](https://github.com/invertase/react-native-firebase/compare/v26.3.0...v26.3.1) (2026-08-20)
+
+### Bug Fixes
+
+- restore tokenless npm OIDC publishing ([f601644](https://github.com/invertase/react-native-firebase/commit/f60164462f6de612b20192dde4b154e1c1d6afc7))
+
+## [26.3.0](https://github.com/invertase/react-native-firebase/compare/v26.2.0...v26.3.0) (2026-08-20)
+
+### Bug Fixes
+
+- **ios:** allow non-modular React includes in RNFB podspecs ([#9200](https://github.com/invertase/react-native-firebase/issues/9200)) ([dd453ff](https://github.com/invertase/react-native-firebase/commit/dd453ff17a8bd645b9d0eb56bef74df53f217f93))
+
+## [26.2.0](https://github.com/invertase/react-native-firebase/compare/v26.1.0...v26.2.0) (2026-08-10)
+
+### Bug Fixes
+
+- codegen should be wipe-then-regen ([04bc4e4](https://github.com/invertase/react-native-firebase/commit/04bc4e4cdab9870cb366fd212b2ccb331b0289d6))
+
+## [26.1.0](https://github.com/invertase/react-native-firebase/compare/v26.0.0...v26.1.0) (2026-08-03)
+
+### Features
+
+- **ios:** add SPM dependency resolution support alongside CocoaPods ([#8933](https://github.com/invertase/react-native-firebase/issues/8933)) ([44a7a9a](https://github.com/invertase/react-native-firebase/commit/44a7a9ae7b404f412e9766c0417f1df8fa971a0b))
+
+## [26.0.0](https://github.com/invertase/react-native-firebase/compare/v25.1.0...v26.0.0) (2026-07-29)
+
+### ⚠ BREAKING CHANGES
+
+- **app-distribution:** migrate app-distribution to TurboModules
+
+### Features
+
+- **app-distribution:** migrate app-distribution to TurboModules ([1ab98b1](https://github.com/invertase/react-native-firebase/commit/1ab98b15ce982a7d4779f2572795e0cd6d007d1d))
+
+### Bug Fixes
+
+- add codegen verify and spec-native parity tests ([49d9f1b](https://github.com/invertase/react-native-firebase/commit/49d9f1baba4fc83c1dd4983f582bbd7352d78809))
+- **ios:** set IPHONEOS_DEPLOYMENT_TARGET to 15.0, update platform support docs/conditionals ([#9108](https://github.com/invertase/react-native-firebase/issues/9108)) ([99d0899](https://github.com/invertase/react-native-firebase/commit/99d089908e3eec6155d73ecf05ff7274ad33c46e)), closes [#8882](https://github.com/invertase/react-native-firebase/issues/8882)
+
+## [25.1.0](https://github.com/invertase/react-native-firebase/compare/v25.0.1...v25.1.0) (2026-06-25)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [25.0.1](https://github.com/invertase/react-native-firebase/compare/v25.0.0...v25.0.1) (2026-06-23)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [25.0.0](https://github.com/invertase/react-native-firebase/compare/v24.0.0...v25.0.0) (2026-06-23)
+
+### ⚠ BREAKING CHANGES
+
+- **sdks:** firebase-ios-sdk 12.12.0+ requires Xcode 26.2+
+
+### Bug Fixes
+
+- **sdks:** firebase-ios-sdk (requires Xcode 26.2+), firebase-android-sdk 34.12.0, firebase-js-sdk 12.12.0 ([c8c1fc1](https://github.com/invertase/react-native-firebase/commit/c8c1fc105f8e67914eea2f40ef727bc5a463fa40))
+
+## [24.1.1](https://github.com/invertase/react-native-firebase/compare/v24.1.0...v24.1.1) (2026-06-10)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [24.1.0](https://github.com/invertase/react-native-firebase/compare/v24.0.0...v24.1.0) (2026-06-05)
+
+### Bug Fixes
+
+- firebase-android-sdk 34.14.0, firebase-ios-sdk 12.11.0, firebase-js-sdk 12.14.0 ([65bbe94](https://github.com/invertase/react-native-firebase/commit/65bbe9435fb78bbb2ee4cba25b44b0199a61f030))
+
+## [24.0.0](https://github.com/invertase/react-native-firebase/compare/v23.8.6...v24.0.0) (2026-04-01)
+
+### Features
+
+- **firestore:** Support for Firestore pipelines API ([#8931](https://github.com/invertase/react-native-firebase/issues/8931)) ([54021c4](https://github.com/invertase/react-native-firebase/commit/54021c4af427abc3c8e224b546d68661aa1fc590))
+
+### Bug Fixes
+
+- **deps:** ios-sdk 12.10.0 / android-sdk 34.10.0 / js-sdk 12.10.0 ([8a7acf3](https://github.com/invertase/react-native-firebase/commit/8a7acf3925e6a69ef995c476d4c004400fcee18a))
+- **messaging, expo:** retrieve expo-notification config if available, then deprecated notification ([#8663](https://github.com/invertase/react-native-firebase/issues/8663)) ([aa63174](https://github.com/invertase/react-native-firebase/commit/aa63174b997b62176964d9935929cb686b03f8b3))
+
+## [23.8.8](https://github.com/invertase/react-native-firebase/compare/v23.8.6...v23.8.8) (2026-03-12)
+
+### Bug Fixes
+
+- **deps:** ios-sdk 12.10.0 / android-sdk 34.10.0 / js-sdk 12.10.0 ([ff36c3d](https://github.com/invertase/react-native-firebase/commit/ff36c3d1ce49eed47e8ae5340edc5b56e97a2b81))
+- **messaging, expo:** retrieve expo-notification config if available, then deprecated notification ([#8663](https://github.com/invertase/react-native-firebase/issues/8663)) ([eb90301](https://github.com/invertase/react-native-firebase/commit/eb90301c49af807c4bd3eecadd9a67364c4a30a4))
+
+## [23.8.7](https://github.com/invertase/react-native-firebase/compare/v23.8.6...v23.8.7) (2026-03-12)
+
+### Bug Fixes
+
+- **deps:** ios-sdk 12.10.0 / android-sdk 34.10.0 / js-sdk 12.10.0 ([ff36c3d](https://github.com/invertase/react-native-firebase/commit/ff36c3d1ce49eed47e8ae5340edc5b56e97a2b81))
+- **messaging, expo:** retrieve expo-notification config if available, then deprecated notification ([#8663](https://github.com/invertase/react-native-firebase/issues/8663)) ([eb90301](https://github.com/invertase/react-native-firebase/commit/eb90301c49af807c4bd3eecadd9a67364c4a30a4))
+
+## [23.8.6](https://github.com/invertase/react-native-firebase/compare/v23.8.5...v23.8.6) (2026-02-03)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.8.5](https://github.com/invertase/react-native-firebase/compare/v23.8.4...v23.8.5) (2026-01-31)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.8.4](https://github.com/invertase/react-native-firebase/compare/v23.8.3...v23.8.4) (2026-01-24)
+
+### Bug Fixes
+
+- internal cross-module references to transpiled code must be dist not src ([b03db0a](https://github.com/invertase/react-native-firebase/commit/b03db0aa3fb748ee039826ccd9c7e73bc3c78f6f))
+
+## [23.8.3](https://github.com/invertase/react-native-firebase/compare/v23.8.2...v23.8.3) (2026-01-16)
+
+### Bug Fixes
+
+- **ios:** use react-native podspec module infra for deps ([c66eb63](https://github.com/invertase/react-native-firebase/commit/c66eb63f60cfbabdeb73a3bb1eff8735f11ad391))
+
+## [23.8.2](https://github.com/invertase/react-native-firebase/compare/v23.8.1...v23.8.2) (2026-01-14)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.8.1](https://github.com/invertase/react-native-firebase/compare/v23.8.0...v23.8.1) (2026-01-13)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.8.0](https://github.com/invertase/react-native-firebase/compare/v23.7.0...v23.8.0) (2026-01-13)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.7.0](https://github.com/invertase/react-native-firebase/compare/v23.6.0...v23.7.0) (2025-12-08)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.6.0](https://github.com/invertase/react-native-firebase/compare/v23.5.0...v23.6.0) (2025-12-08)
+
+### Bug Fixes
+
+- **app-distribution, android:** adopt beta17 of the native deps ([7b933c2](https://github.com/invertase/react-native-firebase/commit/7b933c2c21f624e1dc62e549e896230f222351c8))
+- firebase-ios-sdk 12.6.0 / firebase-js-sdk 12.6.0 / firebase-android-sdk 34.6.0 ([dacdfa2](https://github.com/invertase/react-native-firebase/commit/dacdfa2b5961259c93ea948472be4b51ac78b1c5))
+
+## [23.5.0](https://github.com/invertase/react-native-firebase/compare/v23.4.1...v23.5.0) (2025-10-30)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.4.1](https://github.com/invertase/react-native-firebase/compare/v23.4.0...v23.4.1) (2025-10-14)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.4.0](https://github.com/invertase/react-native-firebase/compare/v23.3.1...v23.4.0) (2025-09-24)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.3.1](https://github.com/invertase/react-native-firebase/compare/v23.3.0...v23.3.1) (2025-09-08)
+
+### Bug Fixes
+
+- **app-distribution, android:** use correct app-distribution gradle version 5.1.1 ([25fddad](https://github.com/invertase/react-native-firebase/commit/25fddad1ac540e5e8b006aae286a4e4603198617))
+
+## [23.3.0](https://github.com/invertase/react-native-firebase/compare/v23.2.2...v23.3.0) (2025-09-04)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.2.2](https://github.com/invertase/react-native-firebase/compare/v23.2.1...v23.2.2) (2025-09-03)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.2.1](https://github.com/invertase/react-native-firebase/compare/v23.2.0...v23.2.1) (2025-09-01)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.2.0](https://github.com/invertase/react-native-firebase/compare/v23.1.2...v23.2.0) (2025-08-29)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.1.2](https://github.com/invertase/react-native-firebase/compare/v23.1.1...v23.1.2) (2025-08-25)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.1.1](https://github.com/invertase/react-native-firebase/compare/v23.1.0...v23.1.1) (2025-08-22)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.1.0](https://github.com/invertase/react-native-firebase/compare/v23.0.1...v23.1.0) (2025-08-19)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.0.1](https://github.com/invertase/react-native-firebase/compare/v23.0.0...v23.0.1) (2025-08-12)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [23.0.0](https://github.com/invertase/react-native-firebase/compare/v22.4.0...v23.0.0) (2025-08-07)
+
+### ⚠ BREAKING CHANGES
+
+- android minSdk now must be 23+ (was 21)
+
+### Features
+
+- bump Firebase android SDK to `34.0.0` ([#8627](https://github.com/invertase/react-native-firebase/issues/8627)) ([e9ef5ec](https://github.com/invertase/react-native-firebase/commit/e9ef5ec9742f28ec1d621a401f82125acff0f1cf))
+
+## [22.4.0](https://github.com/invertase/react-native-firebase/compare/v22.3.0...v22.4.0) (2025-07-10)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [22.3.0](https://github.com/invertase/react-native-firebase/compare/v22.2.1...v22.3.0) (2025-07-08)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [22.2.1](https://github.com/invertase/react-native-firebase/compare/v22.2.0...v22.2.1) (2025-06-10)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [22.2.0](https://github.com/invertase/react-native-firebase/compare/v22.1.0...v22.2.0) (2025-05-12)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [22.1.0](https://github.com/invertase/react-native-firebase/compare/v22.0.0...v22.1.0) (2025-04-30)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [22.0.0](https://github.com/invertase/react-native-firebase/compare/v21.14.0...v22.0.0) (2025-04-25)
+
+### Bug Fixes
+
+- **android:** use `=` assignment vs deprecated space-assignment ([39c2ecb](https://github.com/invertase/react-native-firebase/commit/39c2ecb0069a8a5a65b04fb7f86ccecf83273868))
+- enable provenance signing during publish ([4535f0d](https://github.com/invertase/react-native-firebase/commit/4535f0d5756c89aeb8f8e772348c71d8176348be))
+
+## [21.14.0](https://github.com/invertase/react-native-firebase/compare/v21.13.0...v21.14.0) (2025-04-14)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.13.0](https://github.com/invertase/react-native-firebase/compare/v21.12.3...v21.13.0) (2025-03-31)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.12.3](https://github.com/invertase/react-native-firebase/compare/v21.12.2...v21.12.3) (2025-03-26)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.12.2](https://github.com/invertase/react-native-firebase/compare/v21.12.1...v21.12.2) (2025-03-23)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.12.1](https://github.com/invertase/react-native-firebase/compare/v21.12.0...v21.12.1) (2025-03-22)
+
+### Bug Fixes
+
+- **android:** adopt firebase-android-sdk 33.11.0 ([8271231](https://github.com/invertase/react-native-firebase/commit/82712317f9df94f5b5d2d9610f2029c3df0ed96b))
+
+## [21.12.0](https://github.com/invertase/react-native-firebase/compare/v21.11.0...v21.12.0) (2025-03-03)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.11.0](https://github.com/invertase/react-native-firebase/compare/v21.10.1...v21.11.0) (2025-02-20)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.10.1](https://github.com/invertase/react-native-firebase/compare/v21.10.0...v21.10.1) (2025-02-18)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.10.0](https://github.com/invertase/react-native-firebase/compare/v21.9.0...v21.10.0) (2025-02-11)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.9.0](https://github.com/invertase/react-native-firebase/compare/v21.8.0...v21.9.0) (2025-02-11)
+
+### Bug Fixes
+
+- firebase-ios-sdk 11.8.0 / firebase-android-sdk 33.9.0 ([67aba08](https://github.com/invertase/react-native-firebase/commit/67aba08c00aa46b72fcb1353bd428fa552b6686a))
+
+## [21.8.0](https://github.com/invertase/react-native-firebase/compare/v21.7.4...v21.8.0) (2025-02-10)
+
+### Bug Fixes
+
+- do not ship types tests with released packages ([a870cf7](https://github.com/invertase/react-native-firebase/commit/a870cf749687ad2bd6a7a027540bdf29beeaffaa))
+- do not ship unit tests in released packages ([e71dadf](https://github.com/invertase/react-native-firebase/commit/e71dadfc1c0cad2e89c94100913af31ddf7d9c91))
+
+## [21.7.4](https://github.com/invertase/react-native-firebase/compare/v21.7.3...v21.7.4) (2025-02-08)
+
+### Bug Fixes
+
+- the init calls for modular should use modular getApp() ([79da98b](https://github.com/invertase/react-native-firebase/commit/79da98bf4ecf7860db61b2813b87673f1cd0adfd))
+
+## [21.7.3](https://github.com/invertase/react-native-firebase/compare/v21.7.2...v21.7.3) (2025-02-08)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.7.2](https://github.com/invertase/react-native-firebase/compare/v21.7.1...v21.7.2) (2025-02-05)
+
+### Bug Fixes
+
+- **app, android:** adopt firebase-android-sdk 33.8.0 ([14f3dd5](https://github.com/invertase/react-native-firebase/commit/14f3dd51d466d04fa92416d44035bf10194bfbee))
+
+## [21.7.1](https://github.com/invertase/react-native-firebase/compare/v21.7.0...v21.7.1) (2025-01-20)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.7.0](https://github.com/invertase/react-native-firebase/compare/v21.6.2...v21.7.0) (2025-01-16)
+
+### Features
+
+- **app-distribution:** add Android app distribution plugin and configuration ([9b5c405](https://github.com/invertase/react-native-firebase/commit/9b5c405b2933c84daad561117a3eebacc65cbb7e))
+
+## [21.6.2](https://github.com/invertase/react-native-firebase/compare/v21.6.1...v21.6.2) (2025-01-02)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.6.1](https://github.com/invertase/react-native-firebase/compare/v21.6.0...v21.6.1) (2024-11-25)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.6.0](https://github.com/invertase/react-native-firebase/compare/v21.5.0...v21.6.0) (2024-11-20)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.5.0](https://github.com/invertase/react-native-firebase/compare/v21.4.1...v21.5.0) (2024-11-16)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.4.1](https://github.com/invertase/react-native-firebase/compare/v21.4.0...v21.4.1) (2024-11-13)
+
+### Reverts
+
+- Revert "fix(ios, sdk): constrain transitive dependencies more tightly" ([1ff247c](https://github.com/invertase/react-native-firebase/commit/1ff247cd73804efbd52eb9490f68087685de814c))
+
+## [21.4.0](https://github.com/invertase/react-native-firebase/compare/v21.3.0...v21.4.0) (2024-11-07)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.3.0](https://github.com/invertase/react-native-firebase/compare/v21.2.0...v21.3.0) (2024-10-31)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.2.0](https://github.com/invertase/react-native-firebase/compare/v21.1.1...v21.2.0) (2024-10-22)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.1.1](https://github.com/invertase/react-native-firebase/compare/v21.1.0...v21.1.1) (2024-10-22)
+
+### Bug Fixes
+
+- **ios, sdk:** constrain transitive dependencies more tightly ([d03ab42](https://github.com/invertase/react-native-firebase/commit/d03ab42a163a17268bac344ccd135dc18849e1be))
+
+## [21.1.0](https://github.com/invertase/react-native-firebase/compare/v21.0.0...v21.1.0) (2024-10-21)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [21.0.0](https://github.com/invertase/react-native-firebase/compare/v20.5.0...v21.0.0) (2024-09-26)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [20.5.0](https://github.com/invertase/react-native-firebase/compare/v20.4.0...v20.5.0) (2024-09-11)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [20.4.0](https://github.com/invertase/react-native-firebase/compare/v20.3.0...v20.4.0) (2024-08-13)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [20.3.0](https://github.com/invertase/react-native-firebase/compare/v20.2.1...v20.3.0) (2024-07-19)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [20.2.1](https://github.com/invertase/react-native-firebase/compare/v20.2.0...v20.2.1) (2024-07-17)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [20.2.0](https://github.com/invertase/react-native-firebase/compare/v20.1.0...v20.2.0) (2024-07-15)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [20.1.0](https://github.com/invertase/react-native-firebase/compare/v20.0.0...v20.1.0) (2024-06-04)
+
+### Features
+
+- **app:** ios sdk 10.27.0 / android sdk 33.1.0 ([b6158d6](https://github.com/invertase/react-native-firebase/commit/b6158d6ff355ea9156b6f3c3b062c74aaf0d240e))
+
+## [20.0.0](https://github.com/invertase/react-native-firebase/compare/v19.3.0...v20.0.0) (2024-05-20)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [19.3.0](https://github.com/invertase/react-native-firebase/compare/v19.2.2...v19.3.0) (2024-05-20)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [19.2.2](https://github.com/invertase/react-native-firebase/compare/v19.2.1...v19.2.2) (2024-04-13)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [19.2.1](https://github.com/invertase/react-native-firebase/compare/v19.2.0...v19.2.1) (2024-04-12)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [19.2.0](https://github.com/invertase/react-native-firebase/compare/v19.1.2...v19.2.0) (2024-04-10)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [19.1.2](https://github.com/invertase/react-native-firebase/compare/v19.1.1...v19.1.2) (2024-04-03)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [19.1.1](https://github.com/invertase/react-native-firebase/compare/v19.1.0...v19.1.1) (2024-03-26)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [19.1.0](https://github.com/invertase/react-native-firebase/compare/v19.0.1...v19.1.0) (2024-03-23)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [19.0.1](https://github.com/invertase/react-native-firebase/compare/v19.0.0...v19.0.1) (2024-03-07)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [19.0.0](https://github.com/invertase/react-native-firebase/compare/v18.9.0...v19.0.0) (2024-02-26)
+
+### ⚠ BREAKING CHANGES
+
+- **app, sdks:** firebase-ios-sdk 10.21.0 requires cocoapods 1.12+
+  in order to support the new Apple-mandated privacy manifests. Please
+  ensure you are using verson 1.12 or greater of cocoapods
+
+### Bug Fixes
+
+- **app, sdks:** SDK ios 10.21.0 / android / 32.7.2 ([9dc48be](https://github.com/invertase/react-native-firebase/commit/9dc48be52603c71b134dadca16502e8557aca95b))
+
+## [18.9.0](https://github.com/invertase/react-native-firebase/compare/v18.8.0...v18.9.0) (2024-02-21)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.8.0](https://github.com/invertase/react-native-firebase/compare/v18.7.3...v18.8.0) (2024-01-25)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.7.3](https://github.com/invertase/react-native-firebase/compare/v18.7.2...v18.7.3) (2023-12-13)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.7.2](https://github.com/invertase/react-native-firebase/compare/v18.7.1...v18.7.2) (2023-12-08)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.7.1](https://github.com/invertase/react-native-firebase/compare/v18.7.0...v18.7.1) (2023-11-29)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.7.0](https://github.com/invertase/react-native-firebase/compare/v18.6.2...v18.7.0) (2023-11-28)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.6.2](https://github.com/invertase/react-native-firebase/compare/v18.6.1...v18.6.2) (2023-11-23)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.6.1](https://github.com/invertase/react-native-firebase/compare/v18.6.0...v18.6.1) (2023-11-01)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.6.0](https://github.com/invertase/react-native-firebase/compare/v18.5.0...v18.6.0) (2023-10-26)
+
+### Bug Fixes
+
+- **app, sdk:** adopt firebase-android-sdk 32.4.0 ([63f1893](https://github.com/invertase/react-native-firebase/commit/63f1893849578bfab85241bf4458eb845a4d857f))
+
+## [18.5.0](https://github.com/invertase/react-native-firebase/compare/v18.4.0...v18.5.0) (2023-09-22)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.4.0](https://github.com/invertase/react-native-firebase/compare/v18.3.2...v18.4.0) (2023-09-11)
+
+### Features
+
+- **app-distribution:** Firebase V9 modular API ([#7307](https://github.com/invertase/react-native-firebase/issues/7307)) ([309fec4](https://github.com/invertase/react-native-firebase/commit/309fec4989b6736e171ebfc4d77df57e7c83a3a9))
+
+## [18.3.2](https://github.com/invertase/react-native-firebase/compare/v18.3.1...v18.3.2) (2023-09-02)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.3.1](https://github.com/invertase/react-native-firebase/compare/v18.3.0...v18.3.1) (2023-08-23)
+
+### Bug Fixes
+
+- **app, sdks:** adopt android-sdk 32.2.2 / ios-sdk 10.13.0 ([5484c0b](https://github.com/invertase/react-native-firebase/commit/5484c0b69420f888f9a3a59aec8cc59d45f1d2d6))
+
+## [18.3.0](https://github.com/invertase/react-native-firebase/compare/v18.2.0...v18.3.0) (2023-07-19)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.2.0](https://github.com/invertase/react-native-firebase/compare/v18.1.0...v18.2.0) (2023-07-13)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.1.0](https://github.com/invertase/react-native-firebase/compare/v18.0.0...v18.1.0) (2023-06-22)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [18.0.0](https://github.com/invertase/react-native-firebase/compare/v17.5.0...v18.0.0) (2023-06-05)
+
+### ⚠ BREAKING CHANGES
+
+- **app, sdks:** firebase-ios-sdk 10.8.0 and higher require Xcode 13.3+,
+  which transitively requires macOS 12.0+. You must update your CI build environments
+  to meet these minimums as well as your development environments - if you have older
+  hardware that still works but cannot be upgraded normally, you may like:
+  https://dortania.github.io/OpenCore-Legacy-Patcher/
+
+### Features
+
+- **app, sdks:** ios-sdk 10.8.0 requires Xcode 13.3+; android-sdk 31.5.0 ([86dc4d5](https://github.com/invertase/react-native-firebase/commit/86dc4d5d08a4cc7c788b057b5411ccdeb413e13e))
+
+## [17.5.0](https://github.com/invertase/react-native-firebase/compare/v17.4.3...v17.5.0) (2023-05-11)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [17.4.3](https://github.com/invertase/react-native-firebase/compare/v17.4.2...v17.4.3) (2023-04-26)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [17.4.2](https://github.com/invertase/react-native-firebase/compare/v17.4.1...v17.4.2) (2023-04-05)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [17.4.1](https://github.com/invertase/react-native-firebase/compare/v17.4.0...v17.4.1) (2023-04-01)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [17.4.0](https://github.com/invertase/react-native-firebase/compare/v17.3.2...v17.4.0) (2023-03-25)
+
+### Bug Fixes
+
+- **app-distribution, android:** update the gradle plugin to match BoM 31.2.3 release ([ebfb413](https://github.com/invertase/react-native-firebase/commit/ebfb413670d189f77384e05000e13e48abac4516))
+
+### [17.3.2](https://github.com/invertase/react-native-firebase/compare/v17.3.1...v17.3.2) (2023-03-05)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [17.3.1](https://github.com/invertase/react-native-firebase/compare/v17.3.0...v17.3.1) (2023-02-23)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [17.3.0](https://github.com/invertase/react-native-firebase/compare/v17.2.0...v17.3.0) (2023-02-15)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [17.2.0](https://github.com/invertase/react-native-firebase/compare/v17.1.0...v17.2.0) (2023-02-15)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [17.1.0](https://github.com/invertase/react-native-firebase/compare/v17.0.0...v17.1.0) (2023-02-09)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [17.0.0](https://github.com/invertase/react-native-firebase/compare/v16.7.0...v17.0.0) (2023-02-02)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [16.7.0](https://github.com/invertase/react-native-firebase/compare/v16.6.0...v16.7.0) (2023-01-28)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [16.6.0](https://github.com/invertase/react-native-firebase/compare/v16.5.2...v16.6.0) (2023-01-27)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [16.5.2](https://github.com/invertase/react-native-firebase/compare/v16.5.1...v16.5.2) (2023-01-23)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [16.5.1](https://github.com/invertase/react-native-firebase/compare/v16.5.0...v16.5.1) (2023-01-20)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [16.5.0](https://github.com/invertase/react-native-firebase/compare/v16.4.6...v16.5.0) (2022-12-16)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [16.4.6](https://github.com/invertase/react-native-firebase/compare/v16.4.5...v16.4.6) (2022-11-18)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [16.4.5](https://github.com/invertase/react-native-firebase/compare/v16.4.4...v16.4.5) (2022-11-16)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [16.4.4](https://github.com/invertase/react-native-firebase/compare/v16.4.3...v16.4.4) (2022-11-14)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [16.4.3](https://github.com/invertase/react-native-firebase/compare/v16.4.2...v16.4.3) (2022-11-06)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [16.4.2](https://github.com/invertase/react-native-firebase/compare/v16.4.1...v16.4.2) (2022-11-04)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [16.4.1](https://github.com/invertase/react-native-firebase/compare/v16.4.0...v16.4.1) (2022-11-02)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [16.4.0](https://github.com/invertase/react-native-firebase/compare/v16.3.1...v16.4.0) (2022-10-30)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [16.3.1](https://github.com/invertase/react-native-firebase/compare/v16.3.0...v16.3.1) (2022-10-28)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [16.3.0](https://github.com/invertase/react-native-firebase/compare/v16.2.0...v16.3.0) (2022-10-26)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [16.2.0](https://github.com/invertase/react-native-firebase/compare/v16.1.1...v16.2.0) (2022-10-23)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+### [16.1.1](https://github.com/invertase/react-native-firebase/compare/v16.1.0...v16.1.1) (2022-10-21)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [16.1.0](https://github.com/invertase/react-native-firebase/compare/v16.0.0...v16.1.0) (2022-10-20)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [16.0.0](https://github.com/invertase/react-native-firebase/compare/v15.7.1...v16.0.0) (2022-10-19)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [15.7.1](https://github.com/invertase/react-native-firebase/compare/v15.7.0...v15.7.1) (2022-10-19)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [15.7.0](https://github.com/invertase/react-native-firebase/compare/v15.6.0...v15.7.0) (2022-10-01)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [15.6.0](https://github.com/invertase/react-native-firebase/compare/v15.5.0...v15.6.0) (2022-09-17)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [15.5.0](https://github.com/invertase/react-native-firebase/compare/v15.4.0...v15.5.0) (2022-09-16)
+
+### Features
+
+- **android:** firebase-android-sdk 30.5.0 ([abe7620](https://github.com/invertase/react-native-firebase/commit/abe7620c35cd91bd105d64fa64777868a3482435))
+
+# [15.4.0](https://github.com/invertase/react-native-firebase/compare/v15.3.0...v15.4.0) (2022-08-27)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [15.3.0](https://github.com/invertase/react-native-firebase/compare/v15.2.0...v15.3.0) (2022-08-07)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [15.2.0](https://github.com/invertase/react-native-firebase/compare/v15.1.1...v15.2.0) (2022-07-21)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [15.1.1](https://github.com/invertase/react-native-firebase/compare/v15.1.0...v15.1.1) (2022-06-28)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [15.1.0](https://github.com/invertase/react-native-firebase/compare/v15.0.0...v15.1.0) (2022-06-28)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [15.0.0](https://github.com/invertase/react-native-firebase/compare/v14.11.1...v15.0.0) (2022-06-20)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.11.1](https://github.com/invertase/react-native-firebase/compare/v14.11.0...v14.11.1) (2022-06-17)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.11.0](https://github.com/invertase/react-native-firebase/compare/v14.10.1...v14.11.0) (2022-05-27)
+
+### Features
+
+- **android, sdk:** firebase-android-sdk 30.1.0 ([b0462d4](https://github.com/invertase/react-native-firebase/commit/b0462d4d34d1518a50daeca09288bf4aa0e0f695))
+
+## [14.10.1](https://github.com/invertase/react-native-firebase/compare/v14.10.0...v14.10.1) (2022-05-26)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.10.0](https://github.com/invertase/react-native-firebase/compare/v14.9.4...v14.10.0) (2022-05-26)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.9.4](https://github.com/invertase/react-native-firebase/compare/v14.9.3...v14.9.4) (2022-05-14)
+
+### Bug Fixes
+
+- **android:** firebase-android-sdk 30.0.1 ([c5e6b41](https://github.com/invertase/react-native-firebase/commit/c5e6b41eaec0d7238665495caf3e0f9572427e1e)), closes [#6158](https://github.com/invertase/react-native-firebase/issues/6158)
+
+## [14.9.3](https://github.com/invertase/react-native-firebase/compare/v14.9.2...v14.9.3) (2022-05-10)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.9.2](https://github.com/invertase/react-native-firebase/compare/v14.9.1...v14.9.2) (2022-05-10)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.9.1](https://github.com/invertase/react-native-firebase/compare/v14.9.0...v14.9.1) (2022-04-28)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.9.0](https://github.com/invertase/react-native-firebase/compare/v14.8.1...v14.9.0) (2022-04-27)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.8.1](https://github.com/invertase/react-native-firebase/compare/v14.8.0...v14.8.1) (2022-04-25)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.8.0](https://github.com/invertase/react-native-firebase/compare/v14.7.0...v14.8.0) (2022-04-19)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.7.0](https://github.com/invertase/react-native-firebase/compare/v14.6.0...v14.7.0) (2022-03-23)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.6.0](https://github.com/invertase/react-native-firebase/compare/v14.5.1...v14.6.0) (2022-03-23)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.5.1](https://github.com/invertase/react-native-firebase/compare/v14.5.0...v14.5.1) (2022-03-05)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.5.0](https://github.com/invertase/react-native-firebase/compare/v14.4.0...v14.5.0) (2022-02-15)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.4.0](https://github.com/invertase/react-native-firebase/compare/v14.3.3...v14.4.0) (2022-02-13)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.3.3](https://github.com/invertase/react-native-firebase/compare/v14.3.2...v14.3.3) (2022-02-12)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.3.2](https://github.com/invertase/react-native-firebase/compare/v14.3.1...v14.3.2) (2022-02-10)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.3.1](https://github.com/invertase/react-native-firebase/compare/v14.3.0...v14.3.1) (2022-02-07)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.3.0](https://github.com/invertase/react-native-firebase/compare/v14.2.4...v14.3.0) (2022-01-26)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.2.4](https://github.com/invertase/react-native-firebase/compare/v14.2.3...v14.2.4) (2022-01-24)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.2.3](https://github.com/invertase/react-native-firebase/compare/v14.2.2...v14.2.3) (2022-01-20)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.2.2](https://github.com/invertase/react-native-firebase/compare/v14.2.1...v14.2.2) (2022-01-06)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.2.1](https://github.com/invertase/react-native-firebase/compare/v14.2.0...v14.2.1) (2021-12-31)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.2.0](https://github.com/invertase/react-native-firebase/compare/v14.1.0...v14.2.0) (2021-12-31)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.1.0](https://github.com/invertase/react-native-firebase/compare/v14.0.1...v14.1.0) (2021-12-18)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [14.0.1](https://github.com/invertase/react-native-firebase/compare/v14.0.0...v14.0.1) (2021-12-15)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [14.0.0](https://github.com/invertase/react-native-firebase/compare/v13.1.1...v14.0.0) (2021-12-14)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [13.1.1](https://github.com/invertase/react-native-firebase/compare/v13.1.0...v13.1.1) (2021-12-14)
+
+### Bug Fixes
+
+- **deps:** AGP7.0.4, firebase-android-sdk 29.0.2, javascript deps ([55d0a36](https://github.com/invertase/react-native-firebase/commit/55d0a36a0addc54e347f26bb8ee88bb38b0fa4a6))
+
+# [13.1.0](https://github.com/invertase/react-native-firebase/compare/v13.0.1...v13.1.0) (2021-12-02)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [13.0.1](https://github.com/invertase/react-native-firebase/compare/v13.0.0...v13.0.1) (2021-11-05)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [13.0.0](https://github.com/invertase/react-native-firebase/compare/v12.9.3...v13.0.0) (2021-10-31)
+
+### Bug Fixes
+
+- rename default branch to main ([25e1d3d](https://github.com/invertase/react-native-firebase/commit/25e1d3d5a1a8311588938dc9d8fdf71d11cd9963))
+
+## [12.9.3](https://github.com/invertase/react-native-firebase/compare/v12.9.2...v12.9.3) (2021-10-22)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [12.9.2](https://github.com/invertase/react-native-firebase/compare/v12.9.1...v12.9.2) (2021-10-17)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [12.9.1](https://github.com/invertase/react-native-firebase/compare/v12.9.0...v12.9.1) (2021-10-10)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [12.9.0](https://github.com/invertase/react-native-firebase/compare/v12.8.0...v12.9.0) (2021-10-03)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+# [12.8.0](https://github.com/invertase/react-native-firebase/compare/v12.7.5...v12.8.0) (2021-09-14)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [12.7.5](https://github.com/invertase/react-native-firebase/compare/v12.7.4...v12.7.5) (2021-09-04)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [12.7.4](https://github.com/invertase/react-native-firebase/compare/v12.7.3...v12.7.4) (2021-08-31)
+
+### Bug Fixes
+
+- **app-distribution, ios:** avoid crash when releaseNotes is nil ([#5667](https://github.com/invertase/react-native-firebase/issues/5667)) ([41c0107](https://github.com/invertase/react-native-firebase/commit/41c0107dfcefb6989de08d534e5a8099482a420a))
+- **app-distribution, ios:** correct downloadURL usage for JS serialization ([#5668](https://github.com/invertase/react-native-firebase/issues/5668)) ([66d991c](https://github.com/invertase/react-native-firebase/commit/66d991ca4bb034d6a6a56028668be6eb002d4345))
+
+## [12.7.3](https://github.com/invertase/react-native-firebase/compare/v12.7.2...v12.7.3) (2021-08-24)
+
+**Note:** Version bump only for package @react-native-firebase/app-distribution
+
+## [12.7.2](https://github.com/invertase/react-native-firebase/compare/v12.7.1...v12.7.2) (2021-08-21)
+
+### Bug Fixes
+
+- **app-distribution, android:** export methods so module loads ([bc0ae4f](https://github.com/invertase/react-native-firebase/commit/bc0ae4f307d1e6e60bfdf871f85dd3fc796ad8c8))
+
+## [12.7.1](https://github.com/invertase/react-native-firebase/compare/v12.7.0...v12.7.1) (2021-08-20)
+
+### Bug Fixes
+
+- **app, android:** react-native 0.65 compatibility ([262452d](https://github.com/invertase/react-native-firebase/commit/262452d69c2dadd79475235fca42c12b18b2e208))
+
+# [12.7.0](https://github.com/invertase/react-native-firebase/compare/v12.6.1...v12.7.0) (2021-08-19)
+
+### Features
+
+- **app-distribution:** Implement Firebase App Distribution module ([8fa1263](https://github.com/invertase/react-native-firebase/commit/8fa1263bc657b7d1d0630bc193097cb5d4aa631a))

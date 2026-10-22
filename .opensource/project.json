@@ -1,0 +1,9 @@
+{
+  "name": "React Native Firebase",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "type": "library",
+  "platforms": ["Android", "iOS"],
+  "content": "README.md",
+  "pages": ["CONTRIBUTING.md", "CODE_OF_CONDUCT.md"],
+  "related": ["invertase/react-native-firebase-starter"]
+}

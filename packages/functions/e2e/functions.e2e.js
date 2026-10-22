@@ -1,0 +1,1214 @@
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+// Keep this in sync with the data in:
+// https://github.com/invertase/react-native-firebase/blob/main/.github/workflows/scripts/functions/src/sample-data.ts
+const SAMPLE_DATA = {
+  number: 1234,
+  string: 'acde',
+  boolean: true,
+  null: null,
+  object: {
+    number: 1234,
+    string: 'acde',
+    boolean: true,
+    null: null,
+  },
+  array: [1234, 'acde', true, null],
+  deepObject: {
+    array: [1234, 'acde', false, null],
+    object: {
+      number: 1234,
+      string: 'acde',
+      boolean: true,
+      null: null,
+      array: [1234, 'acde', true, null],
+    },
+    number: 1234,
+    string: 'acde',
+    boolean: true,
+    null: null,
+  },
+  deepArray: [
+    1234,
+    'acde',
+    true,
+    null,
+    [1234, 'acde', true, null],
+    {
+      number: 1234,
+      string: 'acde',
+      boolean: true,
+      null: null,
+      array: [1234, 'acde', true, null],
+    },
+  ],
+  deepMap: {
+    number: 123,
+    string: 'foo',
+    booleanTrue: true,
+    booleanFalse: false,
+    null: null,
+    list: ['1', 2, true, false],
+    map: {
+      number: 123,
+      string: 'foo',
+      booleanTrue: true,
+      booleanFalse: false,
+      null: null,
+    },
+  },
+  deepList: [
+    '1',
+    2,
+    true,
+    false,
+    ['1', 2, true, false],
+    {
+      number: 123,
+      string: 'foo',
+      booleanTrue: true,
+      booleanFalse: false,
+      null: null,
+    },
+  ],
+};
+
+const { getE2eEmulatorHost, getE2eEmulatorPort } = require('../../app/e2e/helpers');
+
+function functionsEmulatorPort() {
+  return getE2eEmulatorPort('functions');
+}
+
+function functionsCallableUrl(fnPath) {
+  return `http://${getE2eEmulatorHost()}:${functionsEmulatorPort()}/react-native-firebase-testing/us-central1/${fnPath}`;
+}
+
+const E2E_CALLABLE_TIMEOUT_MS = 120000;
+
+function e2eCallableTimeoutOptions(extra = {}) {
+  return { timeout: E2E_CALLABLE_TIMEOUT_MS, ...extra };
+}
+
+// firebase-js-sdk 12.18.0 appends " [<httpStatus>]" to FunctionsError.message on web/macos.
+function assertHttpsErrorMessage(actual, base) {
+  if (Platform.other) {
+    actual.should.startWith(`${base} [`);
+    actual.should.match(/ \[\d+\]$/);
+  } else {
+    actual.should.equal(base);
+  }
+}
+
+describe('functions() modular', function () {
+  describe('modular', function () {
+    describe('getFunctions', function () {
+      it('pass app as argument', function () {
+        const { getApp } = modular;
+        const { getFunctions } = functionsModular;
+        const functions = getFunctions(getApp());
+        functions.constructor.name.should.be.equal('FirebaseFunctionsModule');
+      });
+
+      it('no app as argument', function () {
+        const { getFunctions } = functionsModular;
+        const functions = getFunctions();
+        functions.constructor.name.should.be.equal('FirebaseFunctionsModule');
+      });
+    });
+
+    it('accepts passing in an FirebaseApp instance as first arg', async function () {
+      const { initializeApp, deleteApp } = modular;
+      const { getFunctions } = functionsModular;
+      // Process-stable name `functionsApp${id}3` collided after Jet reconnect / suite re-entry.
+      const appName = `functionsApp${FirebaseHelpers.id}${Date.now()}`;
+      const platformAppConfig = FirebaseHelpers.app.config();
+      const app = await initializeApp(platformAppConfig, appName);
+      try {
+        const functions = getFunctions(app);
+
+        functions.app.should.equal(app);
+        functions.app.name.should.equal(app.name);
+
+        // check from an app
+        getFunctions(app).app.should.equal(app);
+        getFunctions(app).app.name.should.equal(app.name);
+      } finally {
+        await deleteApp(app);
+      }
+    });
+
+    it('accepts passing in a region string as first arg to an app', async function () {
+      const { getApp } = modular;
+      const { getFunctions, httpsCallable } = functionsModular;
+      const region = 'europe-west1';
+
+      const functionsForRegion = getFunctions(getApp(), region);
+
+      functionsForRegion._customUrlOrRegion.should.equal(region);
+      functionsForRegion.app.should.equal(getApp());
+      functionsForRegion.app.name.should.equal(getApp().name);
+
+      getFunctions(getApp(), region).app.should.equal(getApp());
+
+      getFunctions(getApp(), region)._customUrlOrRegion.should.equal(region);
+
+      const functionRunner = httpsCallable(
+        functionsForRegion,
+        'testFunctionCustomRegion',
+        e2eCallableTimeoutOptions(),
+      );
+
+      const response = await functionRunner();
+      response.data.should.equal(region);
+    });
+
+    it('accepts passing in a custom url string as first arg to an app', async function () {
+      const { getApp } = modular;
+      const { getFunctions, httpsCallable } = functionsModular;
+      const customUrl = 'https://us-central1-react-native-firebase-testing.cloudfunctions.net';
+
+      const functionsForCustomUrl = getFunctions(getApp(), customUrl);
+
+      functionsForCustomUrl._customUrlOrRegion.should.equal(customUrl);
+      functionsForCustomUrl.app.should.equal(getApp());
+      functionsForCustomUrl.app.name.should.equal(getApp().name);
+
+      functionsForCustomUrl.app.should.equal(getApp());
+
+      functionsForCustomUrl._customUrlOrRegion.should.equal(customUrl);
+
+      const functionRunner = httpsCallable(
+        functionsForCustomUrl,
+        'testFunctionDefaultRegionV2',
+        e2eCallableTimeoutOptions(),
+      );
+
+      const response = await functionRunner();
+      response.data.should.equal('null');
+    });
+
+    describe('emulator', function () {
+      it('configures functions emulator via deprecated method with no port', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable, connectFunctionsEmulator } = functionsModular;
+        const region = 'us-central1';
+        const fnName = 'helloWorldV2';
+        const functions = getFunctions(getApp(), region);
+        connectFunctionsEmulator(functions, getE2eEmulatorHost(), functionsEmulatorPort());
+        const response = await httpsCallable(functions, fnName, e2eCallableTimeoutOptions())();
+        response.data.should.equal('Hello from Firebase!');
+      });
+
+      it('configures functions emulator via deprecated method with port', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable, connectFunctionsEmulator } = functionsModular;
+        const region = 'us-central1';
+        const fnName = 'helloWorldV2';
+        const functions = getFunctions(getApp(), region);
+        connectFunctionsEmulator(functions, getE2eEmulatorHost(), functionsEmulatorPort());
+        const response = await httpsCallable(functions, fnName, e2eCallableTimeoutOptions())();
+        response.data.should.equal('Hello from Firebase!');
+      });
+
+      it('HttpsCallableOptions.timeout honors millisecond values on web/macos', async function () {
+        if (!Platform.other) {
+          return this.skip();
+        }
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable, connectFunctionsEmulator } = functionsModular;
+        const functions = getFunctions(getApp(), 'us-central1');
+        connectFunctionsEmulator(functions, getE2eEmulatorHost(), functionsEmulatorPort());
+        const response = await httpsCallable(functions, 'helloWorldV2', { timeout: 10000 })();
+        response.data.should.equal('Hello from Firebase!');
+      });
+    });
+
+    describe('httpsCallableFromUrl()', function () {
+      it('Calls a function by URL', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallableFromUrl } = functionsModular;
+
+        const functions = getFunctions(getApp());
+        const functionRunner = httpsCallableFromUrl(
+          functions,
+          functionsCallableUrl('helloWorldV2'),
+          e2eCallableTimeoutOptions(),
+        );
+        const response = await functionRunner();
+        response.data.should.equal('Hello from Firebase!');
+      });
+
+      // Native Module.mm optional defaults: timeout omitted (: 0) + limitedUse present.
+      it('omits timeout and passes limitedUseAppCheckTokens', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallableFromUrl } = functionsModular;
+
+        const functions = getFunctions(getApp());
+        const functionRunner = httpsCallableFromUrl(
+          functions,
+          functionsCallableUrl('helloWorldV2'),
+          {
+            limitedUseAppCheckTokens: true,
+          },
+        );
+        const response = await functionRunner();
+        response.data.should.equal('Hello from Firebase!');
+      });
+    });
+
+    describe('httpsCallable(fnName)(args)', function () {
+      // Native Module.mm optional defaults: timeout omitted (: 0) + limitedUse present.
+      it('omits timeout and passes limitedUseAppCheckTokens', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          {
+            limitedUseAppCheckTokens: true,
+          },
+        );
+        const response = await functionRunner();
+        response.data.should.equal('null');
+      });
+
+      it('accepts primitive args: undefined', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        const response = await functionRunner();
+        response.data.should.equal('null');
+      });
+
+      it('accepts primitive args: string', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        const response = await functionRunner('hello');
+        response.data.should.equal('string');
+      });
+
+      it('accepts primitive args: number', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        const response = await functionRunner(123);
+        response.data.should.equal('number');
+      });
+
+      it('accepts primitive args: boolean', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        const response = await functionRunner(true);
+        response.data.should.equal('boolean');
+      });
+
+      it('accepts primitive args: null', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        const response = await functionRunner(null);
+        response.data.should.equal('null');
+      });
+
+      it('accepts array args', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        const response = await functionRunner([1, 2, 3, 4]);
+        response.data.should.equal('array');
+      });
+
+      it('accepts object args', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const type = 'object';
+        const inputData = SAMPLE_DATA[type];
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        const { data: outputData } = await functionRunner({
+          type,
+          inputData,
+        });
+        should.deepEqual(outputData, inputData);
+      });
+
+      it('accepts complex nested objects', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const type = 'deepObject';
+        const inputData = SAMPLE_DATA[type];
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        const { data: outputData } = await functionRunner({
+          type,
+          inputData,
+        });
+        should.deepEqual(outputData, inputData);
+      });
+
+      it('accepts complex nested arrays', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const type = 'deepArray';
+        const inputData = SAMPLE_DATA[type];
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        const { data: outputData } = await functionRunner({
+          type,
+          inputData,
+        });
+        should.deepEqual(outputData, inputData);
+      });
+    });
+
+    describe('HttpsError', function () {
+      it('errors return instance of HttpsError', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+
+        try {
+          await functionRunner({});
+          return Promise.reject(new Error('Function did not reject with error.'));
+        } catch (e) {
+          should.equal(e.details, null);
+          e.code.should.equal('invalid-argument');
+          assertHttpsErrorMessage(e.message, 'Invalid test requested.');
+        }
+
+        return Promise.resolve();
+      });
+
+      it('HttpsError.details -> allows returning complex data', async function () {
+        let type = 'deepObject';
+        let inputData = SAMPLE_DATA[type];
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        try {
+          await functionRunner({
+            type,
+            inputData,
+            asError: true,
+          });
+          return Promise.reject(new Error('Function did not reject with error.'));
+        } catch (e) {
+          should.deepEqual(e.details, inputData);
+          e.code.should.equal('cancelled');
+          assertHttpsErrorMessage(
+            e.message,
+            'Response data was requested to be sent as part of an Error payload, so here we are!',
+          );
+        }
+
+        type = 'deepArray';
+        inputData = SAMPLE_DATA[type];
+        try {
+          await functionRunner({
+            type,
+            inputData,
+            asError: true,
+          });
+          return Promise.reject(new Error('Function did not reject with error.'));
+        } catch (e) {
+          should.deepEqual(e.details, inputData);
+          e.code.should.equal('cancelled');
+          assertHttpsErrorMessage(
+            e.message,
+            'Response data was requested to be sent as part of an Error payload, so here we are!',
+          );
+        }
+
+        return Promise.resolve();
+      });
+
+      it('HttpsError.details -> allows returning primitives', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        let type = 'number';
+        let inputData = SAMPLE_DATA[type];
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testFunctionDefaultRegionV2',
+          e2eCallableTimeoutOptions(),
+        );
+        try {
+          await functionRunner({
+            type,
+            inputData,
+            asError: true,
+          });
+          return Promise.reject(new Error('Function did not reject with error.'));
+        } catch (e) {
+          e.code.should.equal('cancelled');
+          assertHttpsErrorMessage(
+            e.message,
+            'Response data was requested to be sent as part of an Error payload, so here we are!',
+          );
+          should.deepEqual(e.details, inputData);
+        }
+
+        type = 'string';
+        inputData = SAMPLE_DATA[type];
+        try {
+          await functionRunner({
+            type,
+            inputData,
+            asError: true,
+          });
+          return Promise.reject(new Error('Function did not reject with error.'));
+        } catch (e) {
+          should.deepEqual(e.details, inputData);
+          e.code.should.equal('cancelled');
+          assertHttpsErrorMessage(
+            e.message,
+            'Response data was requested to be sent as part of an Error payload, so here we are!',
+          );
+        }
+
+        type = 'boolean';
+        inputData = SAMPLE_DATA[type];
+        try {
+          await functionRunner({
+            type,
+            inputData,
+            asError: true,
+          });
+          return Promise.reject(new Error('Function did not reject with error.'));
+        } catch (e) {
+          should.deepEqual(e.details, inputData);
+          e.code.should.equal('cancelled');
+          assertHttpsErrorMessage(
+            e.message,
+            'Response data was requested to be sent as part of an Error payload, so here we are!',
+          );
+        }
+
+        type = 'null';
+        inputData = SAMPLE_DATA[type];
+        try {
+          await functionRunner({
+            type,
+            inputData,
+            asError: true,
+          });
+          return Promise.reject(new Error('Function did not reject with error.'));
+        } catch (e) {
+          should.deepEqual(e.details, inputData);
+          e.code.should.equal('cancelled');
+          assertHttpsErrorMessage(
+            e.message,
+            'Response data was requested to be sent as part of an Error payload, so here we are!',
+          );
+        }
+
+        return Promise.resolve();
+      });
+
+      it('HttpsCallableOptions.timeout will error when timeout is exceeded', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functions = getFunctions(getApp());
+        const functionRunner = httpsCallable(functions, 'sleeperV2', { timeout: 1000 });
+
+        try {
+          await functionRunner({ delay: 3000 });
+          return Promise.reject(new Error('Did not throw an Error.'));
+        } catch (error) {
+          if (Platform.other) {
+            error.message.should.containEql('deadline-exceeded');
+          } else {
+            error.message.should.containEql('DEADLINE').containEql('EXCEEDED');
+          }
+          return Promise.resolve();
+        }
+      });
+    });
+
+    describe('httpsCallable.stream()', function () {
+      it('should stream data chunks from a basic streaming function', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testStreamingCallable',
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream({ count: 5, delay: 500 });
+
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+          chunk.should.have.property('timestamp');
+          chunk.should.have.property('data');
+          chunk.data.should.have.property('value');
+          chunk.data.should.have.property('isEven');
+        });
+
+        const result = await data;
+        result.should.be.an.Object();
+        result.should.have.property('totalCount');
+        result.should.have.property('message');
+        result.totalCount.should.equal(5);
+        result.message.should.equal('Stream complete');
+      });
+
+      it('should stream progress updates', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testProgressStream',
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream({ task: 'TestTask' });
+
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('progress');
+          chunk.should.have.property('status');
+          chunk.should.have.property('task');
+          chunk.task.should.equal('TestTask');
+        });
+
+        const result = await data;
+        result.should.be.an.Object();
+        result.should.have.property('success');
+        result.success.should.equal(true);
+      });
+
+      it('should handle complex data structures in stream', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testComplexDataStream',
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream({});
+
+        const complexChunks = [];
+        for await (const chunk of stream) {
+          complexChunks.push(chunk);
+        }
+
+        complexChunks.forEach(chunk => {
+          chunk.should.have.property('id');
+          chunk.should.have.property('name');
+          chunk.should.have.property('tags');
+          chunk.should.have.property('metadata');
+          chunk.tags.should.be.an.Array();
+          chunk.metadata.should.have.property('created');
+          chunk.metadata.should.have.property('version');
+        });
+
+        const result = await data;
+        result.should.be.an.Object();
+        result.should.have.property('summary');
+        result.summary.should.have.property('totalItems');
+        result.summary.should.have.property('processedAt');
+        result.summary.totalItems.should.equal(3);
+      });
+
+      it('should work with HttpsCallableOptions.timeout', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testStreamingCallable',
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream({ count: 3, delay: 300 });
+
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+          chunk.should.have.property('timestamp');
+          chunk.should.have.property('data');
+        });
+
+        const result = await data;
+        result.should.be.an.Object();
+      });
+
+      // Native Module.mm streamSetup: timeout omitted (: 0). No limitedUse ternary on stream path.
+      it('streams when HttpsCallableOptions.timeout is omitted', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(getFunctions(getApp()), 'testStreamingCallable');
+        const { stream, data } = await functionRunner.stream({ count: 2, delay: 200 });
+
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+          chunk.should.have.property('timestamp');
+          chunk.should.have.property('data');
+        });
+
+        const result = await data;
+        result.should.be.an.Object();
+      });
+
+      it('should accept stream options as second parameter', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testStreamingCallable',
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream(
+          { count: 3, delay: 300 },
+          { limitedUseAppCheckTokens: false },
+        );
+
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+          chunk.should.have.property('timestamp');
+          chunk.should.have.property('data');
+        });
+
+        const result = await data;
+        result.should.be.an.Object();
+      });
+
+      it('should handle empty data parameter', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testComplexDataStream',
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream();
+
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('id');
+          chunk.should.have.property('name');
+          chunk.should.have.property('tags');
+          chunk.should.have.property('metadata');
+        });
+
+        const result = await data;
+        result.should.be.an.Object();
+      });
+
+      it('should handle null data parameter', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testStreamingCallableWithNull',
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream(null);
+
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        chunks[0].should.have.property('message');
+        chunks[0].should.have.property('dataType');
+        chunks[0].message.should.equal('Null data received');
+        chunks[0].dataType.should.equal('null');
+
+        const result = await data;
+        result.should.be.an.Object();
+        result.should.have.property('success');
+        result.success.should.equal(true);
+      });
+
+      it('should return both stream and data promise', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testStreamingCallable',
+          e2eCallableTimeoutOptions(),
+        );
+        const result = await functionRunner.stream({ count: 2, delay: 200 });
+
+        result.should.have.property('stream');
+        result.should.have.property('data');
+        result.stream.should.be.an.Object();
+        result.data.should.be.a.Promise();
+
+        const chunks = [];
+        for await (const chunk of result.stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+        });
+
+        const finalData = await result.data;
+        finalData.should.be.an.Object();
+      });
+
+      it('should handle native streaming errors', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testStreamWithError',
+          e2eCallableTimeoutOptions(),
+        );
+
+        const { stream, data } = await functionRunner.stream({ shouldError: true, errorAfter: 2 });
+        let streamFailed = false;
+        try {
+          for await (const _chunk of stream) {
+            // drain until native onError propagates
+          }
+        } catch (e) {
+          streamFailed = true;
+          e.should.be.an.Error();
+        }
+        streamFailed.should.equal(true);
+        try {
+          await data;
+          return Promise.reject(new Error('Expected data promise to reject'));
+        } catch (e) {
+          e.should.be.an.Error();
+        }
+      });
+
+      it('should cancel streaming cleanly when iteration stops early', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functionRunner = httpsCallable(
+          getFunctions(getApp()),
+          'testStreamingCallable',
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream({ count: 5, delay: 300 });
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+          if (chunks.length >= 2) {
+            break;
+          }
+        }
+        chunks.should.have.length(2);
+        // Generator `finally` removes the native listener; allow in-flight onComplete to finish.
+        await Promise.race([
+          data.catch(() => undefined),
+          new Promise(resolve => setTimeout(resolve, 1500)),
+        ]);
+      });
+
+      it('should work with multiple streams in parallel', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallable } = functionsModular;
+        const functions = getFunctions(getApp());
+        const functionRunner1 = httpsCallable(
+          functions,
+          'testStreamingCallable',
+          e2eCallableTimeoutOptions(),
+        );
+        const functionRunner2 = httpsCallable(
+          functions,
+          'testStreamingCallable',
+          e2eCallableTimeoutOptions(),
+        );
+
+        const [result1, result2] = await Promise.all([
+          functionRunner1.stream({ count: 2, delay: 200 }),
+          functionRunner2.stream({ count: 2, delay: 200 }),
+        ]);
+
+        const chunks1 = [];
+        const chunks2 = [];
+
+        const [_, __] = await Promise.all([
+          (async () => {
+            for await (const chunk of result1.stream) {
+              chunks1.push(chunk);
+            }
+          })(),
+          (async () => {
+            for await (const chunk of result2.stream) {
+              chunks2.push(chunk);
+            }
+          })(),
+        ]);
+
+        chunks1.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+        });
+        chunks2.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+        });
+
+        const [data1, data2] = await Promise.all([result1.data, result2.data]);
+        data1.should.be.an.Object();
+        data2.should.be.an.Object();
+      });
+
+      describe('HttpsError', function () {
+        it('HttpsError when calling stream by name', async function () {
+          const { getApp } = modular;
+          const { getFunctions, httpsCallable } = functionsModular;
+          const functionRunner = httpsCallable(
+            getFunctions(getApp()),
+            'testStreamWithHttpsError',
+            e2eCallableTimeoutOptions(),
+          );
+
+          try {
+            const { stream } = await functionRunner.stream(null);
+            for await (const _ of stream) {
+            }
+            return Promise.reject(new Error('Function did not reject with error.'));
+          } catch (e) {
+            e.code.should.equal('invalid-argument');
+            assertHttpsErrorMessage(e.message, 'Invalid test requested.');
+          }
+
+          let type = 'deepObject';
+          let inputData = SAMPLE_DATA[type];
+          try {
+            const { stream: s1 } = await functionRunner.stream({
+              type,
+              inputData,
+              asError: true,
+            });
+            for await (const _chunk of s1) {
+            }
+            return Promise.reject(new Error('Function did not reject with error.'));
+          } catch (e) {
+            e.code.should.equal('cancelled');
+            assertHttpsErrorMessage(
+              e.message,
+              'Response data was requested to be sent as part of an Error payload, so here we are!',
+            );
+          }
+
+          type = 'deepArray';
+          inputData = SAMPLE_DATA[type];
+          try {
+            const { stream: s2 } = await functionRunner.stream({
+              type,
+              inputData,
+              asError: true,
+            });
+            for await (const _chunk of s2) {
+            }
+            return Promise.reject(new Error('Function did not reject with error.'));
+          } catch (e) {
+            e.code.should.equal('cancelled');
+            assertHttpsErrorMessage(
+              e.message,
+              'Response data was requested to be sent as part of an Error payload, so here we are!',
+            );
+          }
+
+          type = 'number';
+          inputData = SAMPLE_DATA[type];
+          try {
+            const { stream: s3 } = await functionRunner.stream({
+              type,
+              inputData,
+              asError: true,
+            });
+            for await (const _chunk of s3) {
+            }
+            return Promise.reject(new Error('Function did not reject with error.'));
+          } catch (e) {
+            e.code.should.equal('cancelled');
+            assertHttpsErrorMessage(
+              e.message,
+              'Response data was requested to be sent as part of an Error payload, so here we are!',
+            );
+          }
+
+          return Promise.resolve();
+        });
+
+        it('HttpsError when calling stream from URL', async function () {
+          const { getApp } = modular;
+          const { getFunctions, httpsCallableFromUrl } = functionsModular;
+          const functionRunner = httpsCallableFromUrl(
+            getFunctions(getApp()),
+            functionsCallableUrl('testStreamWithHttpsErrorFromUrl'),
+            e2eCallableTimeoutOptions(),
+          );
+
+          try {
+            const { stream } = await functionRunner.stream(null);
+            for await (const _chunk of stream) {
+            }
+            return Promise.reject(new Error('Function did not reject with error.'));
+          } catch (e) {
+            e.code.should.equal('invalid-argument');
+            assertHttpsErrorMessage(e.message, 'Invalid test requested.');
+          }
+
+          let type = 'number';
+          let inputData = SAMPLE_DATA[type];
+          try {
+            const { stream: s1 } = await functionRunner.stream({
+              type,
+              inputData,
+              asError: true,
+            });
+            for await (const _chunk of s1) {
+            }
+            return Promise.reject(new Error('Function did not reject with error.'));
+          } catch (e) {
+            e.code.should.equal('cancelled');
+            assertHttpsErrorMessage(
+              e.message,
+              'Response data was requested to be sent as part of an Error payload, so here we are!',
+            );
+          }
+
+          type = 'deepObject';
+          inputData = SAMPLE_DATA[type];
+          try {
+            const { stream: s2 } = await functionRunner.stream({
+              type,
+              inputData,
+              asError: true,
+            });
+            for await (const _chunk of s2) {
+            }
+            return Promise.reject(new Error('Function did not reject with error.'));
+          } catch (e) {
+            e.code.should.equal('cancelled');
+            assertHttpsErrorMessage(
+              e.message,
+              'Response data was requested to be sent as part of an Error payload, so here we are!',
+            );
+          }
+
+          type = 'string';
+          inputData = SAMPLE_DATA[type];
+          try {
+            const { stream: s3 } = await functionRunner.stream({
+              type,
+              inputData,
+              asError: true,
+            });
+            for await (const _chunk of s3) {
+            }
+            return Promise.reject(new Error('Function did not reject with error.'));
+          } catch (e) {
+            e.code.should.equal('cancelled');
+            assertHttpsErrorMessage(
+              e.message,
+              'Response data was requested to be sent as part of an Error payload, so here we are!',
+            );
+          }
+
+          return Promise.resolve();
+        });
+      });
+    });
+
+    describe('httpsCallableFromUrl.stream()', function () {
+      it('should stream data chunks from URL', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallableFromUrl } = functionsModular;
+        const functionRunner = httpsCallableFromUrl(
+          getFunctions(getApp()),
+          functionsCallableUrl('testStreamingCallable'),
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream({ count: 3, delay: 400 });
+
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+          chunk.should.have.property('timestamp');
+          chunk.should.have.property('data');
+        });
+
+        const result = await data;
+        result.should.be.an.Object();
+      });
+
+      it('should work with HttpsCallableOptions.timeout on URL stream', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallableFromUrl } = functionsModular;
+        const functionRunner = httpsCallableFromUrl(
+          getFunctions(getApp()),
+          functionsCallableUrl('testStreamingCallable'),
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream({ count: 2, delay: 300 });
+
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+          chunk.should.have.property('timestamp');
+          chunk.should.have.property('data');
+        });
+
+        const result = await data;
+        result.should.be.an.Object();
+      });
+
+      it('should accept stream options as second parameter for URL', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallableFromUrl } = functionsModular;
+        const functionRunner = httpsCallableFromUrl(
+          getFunctions(getApp()),
+          functionsCallableUrl('testStreamingCallable'),
+          e2eCallableTimeoutOptions(),
+        );
+        const { stream, data } = await functionRunner.stream(
+          { count: 2, delay: 300 },
+          { limitedUseAppCheckTokens: false },
+        );
+
+        const chunks = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+          chunk.should.have.property('timestamp');
+          chunk.should.have.property('data');
+        });
+
+        const result = await data;
+        result.should.be.an.Object();
+      });
+
+      it('should return both stream and data promise for URL', async function () {
+        const { getApp } = modular;
+        const { getFunctions, httpsCallableFromUrl } = functionsModular;
+        const functionRunner = httpsCallableFromUrl(
+          getFunctions(getApp()),
+          functionsCallableUrl('testStreamingCallable'),
+          e2eCallableTimeoutOptions(),
+        );
+        const result = await functionRunner.stream({ count: 2, delay: 200 });
+
+        result.should.have.property('stream');
+        result.should.have.property('data');
+        result.stream.should.be.an.Object();
+        result.data.should.be.a.Promise();
+
+        const chunks = [];
+        for await (const chunk of result.stream) {
+          chunks.push(chunk);
+        }
+
+        chunks.forEach(chunk => {
+          chunk.should.have.property('index');
+          chunk.should.have.property('message');
+        });
+
+        const finalData = await result.data;
+        finalData.should.be.an.Object();
+      });
+    });
+  });
+});

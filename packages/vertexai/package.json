@@ -1,0 +1,78 @@
+{
+  "name": "@react-native-firebase/vertexai",
+  "version": "27.0.0",
+  "author": "Invertase <oss@invertase.io> (http://invertase.io)",
+  "description": "React Native Firebase - Vertex AI is a fully-managed, unified AI development platform for building and using generative AI",
+  "main": "./dist/module/index.js",
+  "types": "./dist/typescript/lib/index.d.ts",
+  "scripts": {
+    "build": "genversion --esm --semi lib/version.ts",
+    "build:clean": "rimraf dist",
+    "compile": "bob build",
+    "prepare": "yarn run build && yarn compile"
+  },
+  "homepage": "https://rnfirebase.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/invertase/react-native-firebase",
+    "directory": "packages/vertexai"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "react",
+    "react-native",
+    "firebase",
+    "vertexai",
+    "gemini",
+    "generative-ai"
+  ],
+  "dependencies": {
+    "@react-native-firebase/ai": "27.0.0",
+    "react-native-fetch-api": "^3.0.0",
+    "text-encoding": "^0.7.0",
+    "web-streams-polyfill": "^4.2.0"
+  },
+  "peerDependencies": {
+    "@react-native-firebase/app": "27.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@types/text-encoding": "^0.0.40",
+    "react-native-builder-bob": "^0.41.0",
+    "typescript": "^6.0.3"
+  },
+  "source": "./lib/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/typescript/lib/index.d.ts",
+      "default": "./dist/module/index.js"
+    }
+  },
+  "files": [
+    "lib",
+    "dist",
+    "!**/__tests__",
+    "!**/__fixtures__",
+    "!**/__mocks__"
+  ],
+  "react-native-builder-bob": {
+    "source": "lib",
+    "output": "dist",
+    "targets": [
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      "typescript"
+    ]
+  },
+  "eslintIgnore": [
+    "node_modules/",
+    "dist/"
+  ]
+}

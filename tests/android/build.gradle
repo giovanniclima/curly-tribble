@@ -1,0 +1,181 @@
+buildscript {
+  ext.buildToolsVersion = "37.0.0"
+  ext.minSdkVersion = 24
+  ext.compileSdkVersion = 37
+  // Test *app* targetSdk only. Do not set rootProject.ext.targetSdkVersion —
+  // invertase applyAndroidVersions() copies it onto RNFB libraries, and
+  // Robolectric 4.14.1 DefaultSdkPicker then rejects package targetSdk 36
+  // (maxSdk 35). Libraries keep packages/*/package.json (app: 34). AndroidTest-AD-1.
+  ext.appTargetSdkVersion = 36
+
+ ext.ndkVersion = "27.1.12297006"
+
+  // Firebase Auth 25 (BoM 35) ships Kotlin 2.4.0 metadata; compiler must be >= 2.4.0 to consume it.
+  // Newer Kotlin still reads older libs (e.g. async-storage 3.x metadata 2.2.0).
+  ext.kotlinVersion = '2.4.0' // https://kotlinlang.org/releases.html
+  ext.supportLibVersion = '1.17.0' // this maps to androidx.core https://developer.android.com/jetpack/androidx/releases/core
+  ext.appCompatVersion = '1.7.1' // this maps to androidx.appcompat https://developer.android.com/jetpack/androidx/releases/appcompat
+  ext.supportVersion = ext.supportLibVersion
+  ext.frescoVersion = '3.6.0' // https://github.com/facebook/fresco/releases
+  ext.fragmentVersion = '1.8.9' // https://developer.android.com/jetpack/androidx/releases/fragment
+  ext.vectordrawableVersion = '1.2.0' // https://developer.android.com/jetpack/androidx/releases/vectordrawable
+  ext.androidxAnnotationVersion = '1.9.1' // https://developer.android.com/jetpack/androidx/releases/annotation
+  ext.googlePlayServicesLocationVersion = '21.5.1' // https://developers.google.com/android/guides/setup
+  ext.googlePlayServicesVersion = '18.10.0' // play-services-base
+  ext.googlePlayServicesAuthVersion = '21.4.0' // play-services-auth
+  ext.googlePlayServicesVisionVersion = '20.1.3' // play-services-vision
+  ext.googlePlayServicesIidVersion = '17.0.0' // play-services-iid - deprecated, device-info only
+  ext.mediaCompatVersion = '1.7.1' // https://developer.android.com/jetpack/androidx/releases/media
+  ext.supportV4Version = '1.0.0' // https://developer.android.com/jetpack/androidx/releases/legacy androidx.legacy:legacy-support-v4
+  ext.swiperefreshlayoutVersion = '1.2.0' // https://developer.android.com/jetpack/androidx/releases/swiperefreshlayout
+
+  // used to aggregate all modules for later reporting
+  ext.firebaseModulePaths = []
+
+  repositories {
+    google()
+    mavenCentral()
+    gradlePluginPortal()
+  }
+  dependencies {
+    classpath 'com.google.gms:google-services:4.5.0' // https://developers.google.com/android/guides/google-services-plugin
+    classpath 'com.android.tools.build:gradle:9.2.1' // RN 0.88 @react-native/gradle-plugin libs.versions.toml agp
+    classpath("com.facebook.react:react-native-gradle-plugin")
+    classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    classpath 'org.jlleitschuh.gradle:ktlint-gradle:14.2.0'
+    classpath 'com.google.firebase:perf-plugin:2.0.2'
+    classpath 'com.google.firebase:firebase-crashlytics-gradle:3.0.8'
+    classpath 'com.google.firebase:firebase-appdistribution-gradle:5.3.0'
+  }
+}
+
+// Library matchers from coverage.properties (generated from
+// tests/react-native-coverage.config.js). Feeds firebaseModulePaths and
+// react-native-coverage's rn-coverage.gradle instrumentation helper.
+def coverageProps = new Properties()
+def coveragePropsFile = file('coverage.properties')
+if (coveragePropsFile.exists()) {
+  coveragePropsFile.withInputStream { coverageProps.load(it) }
+}
+def coverageLibraryMatchers = (coverageProps.getProperty('coverage.libraryProjectMatchers', 'react-native-firebase')
+  .split(',')
+  .collect { it.trim() }
+  .findAll { !it.isEmpty() })
+rootProject.ext.coverageLibraryProjectMatchers = coverageLibraryMatchers
+
+def testsDir = rootProject.projectDir.parentFile
+def rnCoveragePackageJson = ["node", "--print", "require.resolve('react-native-coverage/package.json')"]
+  .execute(null, testsDir)
+  .text
+  .trim()
+if (!rnCoveragePackageJson) {
+  throw new GradleException(
+    'react-native-coverage/package.json not resolved from tests/. Run yarn at repo root.',
+  )
+}
+apply from: new File(new File(rnCoveragePackageJson).parentFile, 'android/rn-coverage.gradle')
+
+def repositoryDir = rootProject.projectDir.parentFile.parentFile
+
+apply plugin: 'org.jetbrains.kotlin.jvm'
+apply plugin: 'org.jlleitschuh.gradle.ktlint'
+
+def packageAndroidSourceDirs = new File(repositoryDir, 'packages')
+  .listFiles()
+  .findAll { it.isDirectory() }
+  .collect { new File(it, 'android') }
+  .findAll { it.isDirectory() }
+sourceSets.main.kotlin.srcDirs(packageAndroidSourceDirs)
+
+def repositoryKotlinFilter = providers.gradleProperty('rnfbKtlintGitFilter')
+  .map { value ->
+    value.readLines()
+      .collect { it.replace('\\', '/').replaceFirst('^\\./', '') }
+      .findAll { !it.isEmpty() }
+      .toSet()
+  }
+  .orElse([] as Set)
+
+allprojects {
+  tasks.withType(org.jlleitschuh.gradle.ktlint.tasks.BaseKtLintCheckTask).configureEach {
+    exclude { element ->
+      if (element.directory) {
+        return false
+      }
+
+      def relativePath = repositoryDir.canonicalFile.toPath()
+        .relativize(element.file.canonicalFile.toPath())
+        .toString()
+        .replace('\\', '/')
+      def isAndroidKotlin = relativePath.matches(
+        '(?:packages/[^/]+/android|tests/android)/.*\\.kt',
+      )
+      !(isAndroidKotlin && repositoryKotlinFilter.get().contains(relativePath))
+    }
+  }
+}
+
+// collect all our modules for reporting
+subprojects.forEach { project ->
+  if (coverageLibraryMatchers.any { matcher -> project.name.contains(matcher) }) {
+    rootProject.ext.firebaseModulePaths << project.projectDir
+  }
+}
+
+subprojects {
+  if (project.name == 'app') {
+    apply plugin: 'org.jlleitschuh.gradle.ktlint'
+    def projectKtlintFormat = tasks.named('ktlintFormat')
+    rootProject.tasks.named('ktlintFormat').configure {
+      dependsOn projectKtlintFormat
+    }
+  }
+
+  tasks.register('listAllDependencies', DependencyReportTask) {}
+
+  // Force all subprojects to use one and only one set of versions
+  ext {
+    compileSdk = rootProject.ext.compileSdkVersion
+    minSdk = rootProject.ext.minSdkVersion
+  }
+  afterEvaluate { project ->
+    if (!project.name.equalsIgnoreCase('app')
+      && project.hasProperty('android')) {
+      android {
+        compileSdkVersion = compileSdk
+        defaultConfig {
+          minSdkVersion = minSdk
+          // Do not overwrite library targetSdk (packages/*/package.json, typically 34).
+          // Forcing the test-app targetSdk 36 makes Robolectric 4.14.1 DefaultSdkPicker
+          // reject package targetSdkVersion=36 > maxSdkVersion=35 — AndroidTest-AD-1.
+        }
+      }
+    }
+
+    // Configure testing settings - if set in module build.gradle files they affect library consumers
+    if (rootProject.ext.coverageLibraryProjectMatchers.any { matcher -> project.name.contains(matcher) }
+      && project.hasProperty('android')) {
+      android {
+        testOptions.unitTests.includeAndroidResources = true
+
+        // Make sure our projects are run through basic lint checks.
+        // AGP 8 `lint {}` DSL: `lintOptions {}` left lintConfig unused for some library
+        // modules under AGP 8.13+ (InvalidPackage / RestrictedApi still aborted).
+        lint {
+          abortOnError = true
+          warningsAsErrors = false
+          lintConfig = file("${rootProject.projectDir}/lint.xml")
+          disable 'InvalidPackage', 'GradleCompatible', 'RestrictedApi',
+            'UnknownNullness', 'SyntheticAccessor', 'LogConditional'
+          checkReleaseBuilds = true
+          checkAllWarnings = true
+          showAll = true
+          textReport = true
+          htmlReport = true
+        }
+      }
+    }
+  }
+}
+
+apply plugin: "com.facebook.react.rootproject"

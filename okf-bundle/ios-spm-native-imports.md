@@ -1,0 +1,629 @@
+---
+type: Reference
+title: iOS SPM native integration decisions
+description: Why RNFB uses dual imports, Objective-C helpers for Swift Firebase products, and an app framework-embedding phase.
+tags: [ios, spm, cocoapods, imports, firebase, cxx-modules]
+timestamp: 2026-09-11T00:00:00Z
+---
+
+# iOS SPM native integration decisions
+
+This is the canonical maintainer record for native constraints discovered while
+adding Firebase SPM dependency resolution. It records decisions and invariants,
+not consumer setup. Consumer configuration and troubleshooting live in
+[`docs/ios-spm.mdx`](../docs/ios-spm.mdx). Podspec RNCore /
+`use_frameworks!` Clang flags:
+[iOS RNCore podspec invariants](ios-rncore-podspec.md).
+
+**Policy:** [OKF documentation and commit policy](documentation-policy.md).
+
+## Decision summary
+
+1. Native Firebase imports keep defensive CocoaPods/SPM dual-include headers
+   (Firebase 13+ resolves via SPM only; the CocoaPods umbrella branch is inert).
+2. Objective-C++ (`.mm`) files must not import Firebase products whose usable
+   Objective-C interface is generated from Swift.
+3. Do not enable `-fcxx-modules`; it fixes Firebase module imports but breaks
+   React Native C++/JSI headers in the same translation unit.
+4. Keep Firebase-typed logic for those products in plain Objective-C helpers
+   and keep TurboModule `.mm` files as Firebase-free delegators.
+5. SPM-built dynamic frameworks required at runtime must be embedded by the app
+   target, not declared as unrelated public Firebase products in RNFB podspecs.
+
+## CocoaPods/SPM dual imports
+
+CocoaPods provides the `Firebase/Firebase.h` umbrella header. SPM exposes
+product modules and does not provide that umbrella. Native files that can use a
+real product header follow this order:
+
+```objc
+#if __has_include(<Firebase/Firebase.h>)
+#import <Firebase/Firebase.h>
+#elif __has_include(<FirebaseAuth/FirebaseAuth.h>)
+#import <FirebaseAuth/FirebaseAuth.h>
+#import <FirebaseCore/FirebaseCore.h>
+#else
+@import FirebaseCore;
+@import FirebaseAuth;
+#endif
+```
+
+A module-header-first two-path form is also valid when the same real header is
+available under both dependency managers. The unsafe form is an umbrella-header
+check followed immediately by `@import`: under SPM the umbrella check is false,
+so Objective-C++ files reach the module import.
+
+### Why the fallback failed
+
+Apple Clang permits `@import` in plain Objective-C with `-fmodules`, but a C++ or
+Objective-C++ translation unit also requires `-fcxx-modules`. RNFB TurboModules
+are `.mm` files because their generated boundary includes C++. A cold SPM build
+therefore failed with:
+
+```text
+error: use of '@import' when C++ modules are disabled
+```
+
+Earlier builds were not proof that the fallback was safe: ccache could serve an
+object compiled in a different include/cache state without re-running the
+failing compiler path. The durable invariant is based on the language/toolchain
+contract, not cache behavior.
+
+Adding the real per-product header branch fixes products that actually publish a
+usable Objective-C header. It does not fix Firebase products whose public
+Objective-C class interface is generated from Swift.
+
+When neither the CocoaPods umbrella nor the SPM product header is present, a
+`.mm` TurboModule must compile a stub that rejects at runtime with a clear
+unsupported/unavailable error. Falling through to `@import` is never allowed;
+do not enable `-fcxx-modules` to make the module import work.
+
+### Mac Catalyst stubs (mirroring upstream `Package.swift` gates)
+
+This is **not** an SPM integration bug in RNFB. Upstream
+`firebase-ios-sdk` `Package.swift` wrap targets omit `.macCatalyst` for some
+products, so Catalyst + SPM links only the empty `SwiftPM-PlatformExclude/*Wrap`
+dummies and never builds the real modules. CocoaPods-era Catalyst builds
+compiled through the `Firebase/Firebase.h` umbrella and therefore masked the
+same platform exclusion.
+
+| Product | Upstream SPM Catalyst gate | RNFB stub | Notes |
+| --- | --- | --- | --- |
+| App Distribution | `FirebaseAppDistributionTarget` is `.iOS` only | `RNFBAppDistributionHelper.m` (`RNFB_APP_DISTRIBUTION_SDK_AVAILABLE`) | Intentionally iOS-tester-only; not proposed for Catalyst; helper owns the `#if`, not the TurboModule `.mm` |
+| Performance | `FirebasePerformanceTarget` omits `.macCatalyst` | `RNFBPerfHelper.m` (`RNFB_PERF_SDK_AVAILABLE`; Catalyst skips `@import`) | Speculative enablement: [firebase-ios-sdk#16468](https://github.com/firebase/firebase-ios-sdk/pull/16468); helper stays plain `.m` so iOS/tvOS SPM can `@import` |
+| In-App Messaging | `FirebaseInAppMessagingTarget` omits `.macCatalyst` | `RNFBFiamHelper.m` (`RNFB_FIAM_SDK_AVAILABLE`; Catalyst skips `@import`) | Same speculative PR; helper stays plain `.m` so iOS/tvOS SPM can `@import` |
+
+Until/unless #16468 lands (or upstream declines and the stubs become permanent),
+RNFB must compile on Catalyst SPM without those product headers/modules. Do not
+stub Auth, Analytics, Crashlytics, Messaging, or other products that upstream
+already includes for Catalyst under SPM.
+
+## Swift-product boundary
+
+`FirebaseStorage`, `FirebaseRemoteConfig`, `FirebaseDatabase`, and
+`FirebaseInAppMessaging` expose their public implementation through
+Swift-generated Objective-C interfaces in SPM. Those generated interfaces are
+module outputs, not stable `Module/Module-Swift.h` files that a pod target can
+reliably discover with `__has_include`.
+
+Auth is the less obvious case. `FirebaseAuth/FirebaseAuth.h` exists, but it does
+not contain the concrete `FIRAuth` and `FIRUser` class interfaces; those core
+classes are Swift and become usable through the generated module interface.
+Auth's hand-written compatibility declarations also come from the
+`FirebaseAuthInternal` Clang module, so the plain Objective-C helper imports both
+modules.
+
+Database's Objective-C implementation types are exposed by the transitive
+`FirebaseDatabaseInternal` Clang module. Its plain Objective-C helpers import
+that module, but `RNFBDatabase.podspec` declares only the public
+`FirebaseDatabase` product. This is an upstream-coupled import boundary, not a
+claim that the internal target is a supported standalone product.
+
+### Rejected alternatives
+
+- **Import `Module-Swift.h` from `.mm`:** the generated header itself uses module
+  imports, so the C++-modules failure moves inside the header.
+- **Enable `-fcxx-modules`:** this changes parsing for the entire translation
+  unit and caused compile failures in React Native's JSI and type-safety headers.
+- **Declare Firebase internal targets as products:** internal targets are not
+  stable consumer products and some are not exported as SPM library products.
+- **Rewrite the moved logic in Swift:** feasible, as the Functions shim shows,
+  but unnecessary for this change. Moving existing Objective-C++ bodies nearly
+  verbatim into `.m` helpers minimizes semantic churn; the `.mm` TurboModule
+  boundary remains either way.
+
+### Chosen shape
+
+Plain `.m` helpers own Firebase imports and Firebase-typed work. TurboModule
+`.mm` files import only Firebase-free helper headers and delegate. Shared headers
+used by `.mm` files must also remain Firebase-free; Database therefore separates
+its queue and constants from `RNFBDatabaseCommon`.
+
+| Package | Plain Objective-C owner |
+| --- | --- |
+| Auth | `RNFBAuthHelper` |
+| Storage | `RNFBStorageHelper` |
+| Remote Config | `RNFBConfigHelper` |
+| In-App Messaging | `RNFBFiamHelper` |
+| Database | `RNFBDatabase*Helper` classes, plus Firebase-free queue/constants headers |
+| Installations | `RNFBInstallationsHelper` |
+| App Distribution | `RNFBAppDistributionHelper` |
+| Analytics | `RNFBAnalyticsHelper` |
+| App Check | `RNFBAppCheckHelper` |
+| Crashlytics | `RNFBCrashlyticsHelper` |
+| Messaging | `RNFBMessagingHelper` |
+| Functions | `RNFBFunctionsHelper` |
+| Firestore | `RNFBFirestore*Helper` classes (module, document, collection, transaction) |
+| Perf | `RNFBPerfHelper` |
+
+Installations still publishes Objective-C product headers
+(`FirebaseInstallations/FirebaseInstallations.h`), but
+`RNFBInstallationsModule.mm` must not import Firebase or fall through to
+`@import`: keep dual CocoaPods/SPM Firebase imports in the plain `.m` helper
+only.
+
+App Distribution keeps the same Firebase-free `.mm` delegator shape.
+`RNFBAppDistributionHelper.m` owns the CocoaPods/SPM dual-import
+(`Firebase/Firebase.h` or `FirebaseAppDistribution` + `FirebaseCore`) and the
+`RNFB_APP_DISTRIBUTION_SDK_AVAILABLE` unavailable reject when product headers
+are absent (typical Mac Catalyst + SPM). Never `@import` from
+`RNFBAppDistributionModule.mm`.
+
+This is a compile-boundary decision, not a TurboModule bridge API decision, so
+it does not use a `NewArch-AD-*` identifier.
+
+## Crashlytics transitive-header boundary
+
+Crashlytics exposed a different failure. `FirebaseCoreExtension` is a real
+Objective-C target, but it is transitive in the Firebase SPM graph and is not a
+public SPM library product RNFB can declare directly. Its header was therefore
+not visible to `RNFBCrashlyticsInitProvider.h`.
+
+The public header only needed to expose three plain `BOOL` methods to RNFB. The
+`FIRLibrary` conformance and `+componentsToRegister` members are used by
+Firebase's component runtime, so they were moved to a private class extension in
+`RNFBCrashlyticsInitProvider.m`. This keeps the header imported by `.mm` code
+Firebase-free without inventing a dependency on a private/transitive target.
+
+## Crashlytics dSYM upload under SPM
+
+`packages/crashlytics/ios_config.sh` (the dSYM/symbol-upload script consumers
+wire into an Xcode "Run Script" build phase) only knew two locations for
+Crashlytics' `upload-symbols`/`run` tool: `$PODS_ROOT/FirebaseCrashlytics/run`
+and a manually-vendored `FirebaseCrashlytics.framework/run`. Neither path
+exists under SPM, so symbol upload silently no-opped for SPM users.
+
+SPM checks out `upload-symbols` under
+`DerivedData/<Project>/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/upload-symbols`.
+`BUILD_DIR` is typically `.../DerivedData/<Project>/Build/Products`, so the
+script strips from `/Build` onward to reach the `SourcePackages` checkout
+root and calls that binary directly (`chmod +x` first if the checkout didn't
+preserve the executable bit). If none of the three paths resolve, the script
+warns and lists every path it checked rather than failing silently.
+
+## Automatic SPM products and multi-pod FirebaseCore sharing
+
+firebase-ios-sdk `Package.swift` declares products as plain `.library(...)`
+with no `type: .dynamic` (confirmed on current tags, including 12.17.0).
+Automatic SPM libraries are linked statically into each consumer.
+
+React Native's `spm_dependency` attaches those products to **each pod target**.
+With `use_frameworks! :linkage => :dynamic` (required for RNFB SPM mode):
+
+- each dynamic pod framework embeds a private FirebaseCore (and related)
+  copy;
+- the app target may also get a `PackageFrameworks/*_PackageProduct.framework`
+  via `rnfirebase_add_spm_core_to_app_target`;
+- runtime can log duplicate `FIRApp` / related classes;
+- `FirebaseApp.configure()` in the app does not configure another pod's copy.
+
+| RNFB | Other native dependency | Shared FirebaseCore? |
+| ---- | ----------------------- | -------------------- |
+| SPM  | SPM (`spm_dependency`)  | No                   |
+| SPM  | CocoaPods Firebase pods | No (dual resolution; other pods must not declare Firebase CocoaPods — Firebase 13+ is SPM-only) |
+
+`$RNFirebaseDisableSPM = true` / Expo `disableSPM: true` **fail** `pod install` /
+prebuild — CocoaPods Firebase is gone with Firebase Apple SDK 13+. There is no
+supported opt-out that restores shared CocoaPods FirebaseCore.
+
+SPM + static pods is rejected by `rnfirebase_fail_if_spm_static_linkage!`:
+per-pod copies collide at link time (`duplicate symbol`). Static linkage is
+not a sharing path under SPM.
+
+This is a packaging limitation of automatic SPM libraries + per-pod
+attachment, not a Data Connect-specific bug. Consumer-facing guidance:
+[`docs/ios-spm.mdx`](../docs/ios-spm.mdx#sharing-firebasecore-with-other-native-pods).
+Tracked from GitHub
+[#9140](https://github.com/invertase/react-native-firebase/issues/9140) /
+Linear CPRN-292.
+
+Do **not** reintroduce comments or docs that claim firebase-ios-sdk products
+use `.library(type: .dynamic)`. That claim is false and misled debugging of
+the multi-pod sharing failure.
+
+## Exact SPM Firebase iOS SDK version
+
+Before Firebase 13, CocoaPods pinned Firebase pods with an exact `version`
+(`spec.dependency pod, version` from `sdkVersions.ios.firebase`) while SPM used
+`{ kind: 'upToNextMajorVersion', minimumVersion: version }` in both
+`firebase_dependency` (RN `spm_dependency` → Pods project) and
+`rnfirebase_add_spm_core_to_app_target` (user-project `package_references`).
+Xcode could therefore resolve a newer 12.x than the RNFB pin.
+
+SPM package requirement is `{ kind: 'exactVersion', version: version }` —
+the hash RN's `spm_dependency` and xcodeproj accept for an exact pin, equal
+to `sdkVersions.ios.firebase`. Legacy CocoaPods Firebase `spec.dependency`
+pins are removed (fail-loud); do not reintroduce them.
+
+Reusing an existing user-project `package_references` entry, including the
+already-linked FirebaseCore healing path, must rewrite a leftover
+`upToNextMajorVersion` to that exact requirement. Leaving the old kind in
+place lets SPM keep floating after upgrade.
+
+## ObjC flag on RNFB pod targets
+
+`rnfirebase_apply_spm_build_settings` adds `-ObjC` to user-project native
+targets so Release dead-code stripping cannot drop FIRLibrary/FIRComponent
+registration. That is not enough when Analytics/Measurement is statically
+absorbed into `RNFBAnalytics` (automatic SPM libraries + dynamic pods):
+Measurement ObjC categories live in the pod's static link, not the app
+target. The same helper therefore adds `-ObjC` to every RNFB pod target
+(`OTHER_LDFLAGS`) as well. Non-RNFB Pods targets are unchanged. Do not add
+CocoaPods-only `IdentitySupport` on the SPM path.
+
+Consumer-facing version pin and `-ObjC` notes:
+[`docs/ios-spm.mdx`](../docs/ios-spm.mdx).
+
+### GoogleUtilities: explicit `spm_dependency` lets pods share one product
+
+The FirebaseCore limitation above is about *automatic* SPM products declared
+only transitively. A related but narrower case: some `GoogleUtilities`
+products (`GULNetwork`, `GULReachability`, `GULMethodSwizzler`) were only
+reachable transitively through `FirebaseAnalytics`/`FirebaseMessaging` on
+`RNFBAnalytics.podspec`/`RNFBMessaging.podspec`, and Xcode's SPM integration
+did not reliably promote them to a shared `PackageProduct.framework` in that
+graph — each pod compiled a private copy instead, colliding at runtime once
+both were loaded (GitHub
+[#9322](https://github.com/invertase/react-native-firebase/issues/9322)).
+
+Declaring the same GoogleUtilities products as an explicit top-level
+`spm_dependency` directly on each consuming podspec (same pattern as the
+existing `GULAppDelegateSwizzler` declaration) is enough for Xcode to build
+one shared dynamic framework per product and link every consumer against it,
+instead of duplicating it per pod. This is scoped to `GoogleUtilities`
+products specifically; it does **not** change or fix the `FirebaseCore`/
+`FIRApp` sharing limitation described above, which stays unsupported under
+SPM regardless of how explicitly any product is declared. Add this
+declaration only to podspecs actually shown to privately duplicate a watched
+class by `yarn test-expo:ios:link`'s `#9322` diagnosis, not pre-emptively to
+every RNFB podspec.
+
+## App target FirebaseCore link: package dependency alone is not enough
+
+`rnfirebase_add_spm_core_to_app_target` exists for the case in the table above
+where the app's own native code (not just a pod) calls `FIRApp`/`FIROptions`
+APIs directly, most commonly Expo's config plugin injecting
+`[FIRApp configure];` into the generated `AppDelegate`. Declaring the
+`FirebaseCore` product on `target.package_product_dependencies` is necessary
+but not sufficient: Xcode only actually links a Swift package product into a
+target's binary if a matching `PBXBuildFile` (with `product_ref` pointing at
+that dependency) also exists on the target's `PBXFrameworksBuildPhase`. A
+dependency declared without that build file compiles (the app target can see
+the product's headers/module) but fails at the link step:
+
+```text
+Undefined symbols for architecture arm64: "_OBJC_CLASS_$_FIRApp"
+```
+
+This shipped for a period without the `PBXBuildFile` step, so every dynamic
+SPM app whose own target called Firebase APIs directly hit this at link time,
+while apps that only reached Firebase through a pod (no direct `FIRApp` call
+in app code) never noticed, since a pod target's `PBXFrameworksBuildPhase`
+already gets a matching build file via SPM's own attach path. Tracked from
+GitHub [#9158](https://github.com/invertase/react-native-firebase/issues/9158)
+/ Linear CPRN-301.
+
+Maintainer check of the **Expo documented path** (SPM + dynamic frameworks +
+prebuild-generated AppDelegate `FIRApp` call) is **`yarn test-expo:ios:link`**
+only — [agent command policy](testing/agent-command-policy.md). `test-expo/` is
+also the user-facing Expo example; the closer is still a workspace **link**
+gate (build-only, does not launch), not Detox e2e (`yarn tests:ios:*`).
+Do not restate `expo prebuild` / `xcodebuild` here. Package index:
+[App package](packages/app/index.md).
+
+### User-project helpers must run after CocoaPods integrate
+
+`rnfirebase_add_spm_core_to_app_target` and `[RNFB] Embed Firebase SPM
+Frameworks` skip every native target that does not already have
+`[CP] Embed Pods Frameworks`. CocoaPods `post_install`
+(`run_podfile_post_install_hooks`) runs **before** `integrate_user_project`,
+which is when that CP phase is added and the app `.pbxproj` is saved.
+
+Expo `prebuild --clean` starts from a template with **no** CP embed phase
+yet. Running those helpers from `post_install` therefore skipped every
+native target: integrate then wrote the CP phase without a FirebaseCore
+`PBXBuildFile` or the RNFB embed phase, which is the `_OBJC_CLASS_$_FIRApp`
+link failure on GitHub
+[#9158](https://github.com/invertase/react-native-firebase/issues/9158).
+Incremental `pod install` on a project that already has
+the Frameworks `PBXBuildFile` still no-ops (no double-link).
+
+`packages/app/firebase_spm.rb` therefore runs **user-project** SPM helpers
+from `run_podfile_post_integrate_hooks` (end of `integrate_user_project`,
+after that save). Pods-project work (UUID counter, RN SPM integrity,
+static-linkage guard) stays on `post_install`. If `post_integrate` is
+missing, user-project helpers stay on `post_install`.
+Pods-project setting changes made from those `post_integrate` hooks (for
+example `SWIFT_ENABLE_EXPLICIT_MODULES`) must call `pods_project.save`:
+CocoaPods has already written `Pods.xcodeproj`, so in-memory-only edits
+are discarded.
+
+### Idempotency guard must distinguish "declared" from "linked"
+
+`rnfirebase_add_spm_core_to_app_target` runs on every `pod install`, so its
+early-exit guard must be re-entrant. A guard that only checks
+"does `package_product_dependencies` already contain `FirebaseCore`" is not
+enough once the fix adds a second, independent artifact (the `PBXBuildFile`):
+a project built by a pre-fix RNFB version already has the dependency declared
+but never the build file, and a naive existence-only guard would treat that
+broken state as done and skip forever, silently never healing an existing
+consumer's checked-in `.pbxproj`. The guard must check both artifacts and,
+when the dependency exists but the build file doesn't, reuse the existing
+dependency object (do not create a second `package_product_dependencies`
+entry, and do not create a second `package_references` entry either) and add
+only the missing build file.
+
+## Runtime framework embedding
+
+React Native's `spm_dependency` integration attaches SPM products to pod
+targets, which is sufficient to compile and link the pods. CocoaPods'
+`[CP] Embed Pods Frameworks` phase knows only about CocoaPods-built frameworks,
+so it does not automatically copy dynamic frameworks built under Xcode's
+`PackageFrameworks` directory into the app bundle.
+
+The failure appeared only at launch:
+
+```text
+Library not loaded: @rpath/FirebaseAppCheckInterop.framework/FirebaseAppCheckInterop
+Referenced from: RNFBStorage.framework/RNFBStorage
+```
+
+Adding unrelated public products to an RNFB podspec does not solve this general
+app-bundle problem, and internal interop targets are not public products.
+
+### Chosen integration
+
+`packages/app/firebase_spm.rb` tracks whether any RNFB dependency selected SPM.
+User-project mutations (embed phase, FirebaseCore on the app target) run from
+CocoaPods `run_podfile_post_integrate_hooks` so `[CP] Embed Pods Frameworks`
+already exists; see
+[user-project helpers must run after CocoaPods integrate](#user-project-helpers-must-run-after-cocoapods-integrate).
+The embed helper adds `[RNFB] Embed Firebase SPM Frameworks` only to
+application targets that already have that CP phase.
+
+The phase:
+
+- copies missing frameworks from `$(BUILT_PRODUCTS_DIR)/PackageFrameworks` to
+  `$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)`;
+- does not overwrite frameworks already embedded by CocoaPods;
+- removes headers/modules from copied bundles and signs them when required.
+
+The hook is guarded and idempotent. If CocoaPods changes the integration point,
+`pod install` warns with the explicit
+`rnfirebase_add_spm_embed_phase(installer)` fallback instead of allowing a
+silent launch failure. The fallback is documented for consumers in
+[`docs/ios-spm.mdx`](../docs/ios-spm.mdx#framework-embedding-fallback).
+
+### Archive `UninstalledProducts` filter (dynamic Mach-O only)
+
+Regular (simulator/device) builds populate
+`$(BUILT_PRODUCTS_DIR)/PackageFrameworks` with Swift Package products. Xcode's
+Archive action does not; it stages products under
+`${OBJROOT}/UninstalledProducts/${PLATFORM_NAME}` instead. The embed script
+therefore has an Archive-only fallback that also calls
+`embed_frameworks_from` on that directory.
+
+That folder is not SPM-only. Archive stages every `SKIP_INSTALL=YES` product
+there, including CocoaPods frameworks built under `use_frameworks!` (required
+for SPM mode). Static frameworks (Expo modules, the always-static
+`Pods_<target>` umbrella, and similar) land alongside real dynamic SPM
+products. Copying a static framework into the app `Frameworks/` directory
+fails App Store validation with "Invalid bundle structure ... binary file is
+not permitted".
+
+`embed_frameworks_from` therefore filters before `rsync`:
+
+- derives the internal binary as `"${framework_name%.framework}"` (folder
+  name minus `.framework`), which holds for every CocoaPods/SPM-built
+  framework this script handles;
+- runs `file -b` on that binary and requires the prose substring
+  `dynamically linked` (intentional string match on Apple's `file` output,
+  not a Mach-O magic-byte parse);
+- skips missing or non-dynamic binaries with a logged line
+  (`Skipping … binary missing or not dynamically linked`).
+
+Tracked from GitHub
+[#9154](https://github.com/invertase/react-native-firebase/issues/9154) /
+Linear CPRN-295.
+
+## Archive signature-copy collision
+
+Real `xcodebuild archive` builds (not simulator builds) can fail with:
+
+```text
+"GoogleAppMeasurementIdentitySupport.xcframework-ios.signature" couldn't be
+copied to "Signatures" because an item with the same name already exists.
+```
+
+This is a long-standing Xcode Archive bug (present since Xcode 15, still
+reproducing on Xcode 26), not specific to react-native-firebase: a Swift
+Package binary target's `.signature` provenance file gets staged into more
+than one target's build directory when multiple targets in the workspace
+transitively depend on the same binary artifact, and Xcode's Archive action
+then collides copying every staged copy into the shared
+`<Archive>.xcarchive/Signatures/` directory. The same class of bug, with the
+same fix, has been reported for other CocoaPods+SPM binary xcframeworks
+(Mapbox: CocoaPods/CocoaPods#12022; MapLibre: maplibre-react-native#1489;
+Lottie).
+
+It can hit *any* binary xcframework in the resolved graph, not just the one
+named in the first error. Google's own `google/GoogleAppMeasurement.git` SPM
+package unconditionally links `GoogleAdsOnDeviceConversion` (from the
+*separate* `googleads/google-ads-on-device-conversion-ios-sdk` package) as a
+dependency of `GoogleAppMeasurementTarget`, completely independent of
+RNFBAnalytics's own *optional* `spm_dependency` call for it (gated behind
+`$RNFirebaseAnalyticsGoogleAppMeasurementOnDeviceConversion`, which only
+mattered for legacy CocoaPods-only resolution — removed with Firebase 13+).
+None of this shows up as a
+reference in our own podspecs or pbxprojs — it only turned up by inspecting
+the actual checked-out `Package.swift` manifests under
+`DerivedData/.../SourcePackages/checkouts`. Fixing one binary artifact just
+surfaces the collision on the next one on a subsequent archive run.
+
+### Chosen fix
+
+`packages/app/firebase_spm.rb` enumerates every known `.binaryTarget`
+xcframework name reachable in the resolved SPM package graph
+(`RNFIREBASE_SPM_SIGNATURE_FIX_ARTIFACT_NAMES`, sourced from
+`SourcePackages/workspace-state.json`'s `artifacts` list after a clean
+`-resolvePackageDependencies` run, not guessed) and adds
+`[RNFB] Remove duplicate Firebase/Google SPM binary xcframework signature
+files` to application targets that already have `[CP] Embed Pods Frameworks`.
+The phase deletes each named artifact's stale `.signature` file from
+`$(CONFIGURATION_BUILD_DIR)` before Xcode's Archive action tries to copy it,
+so only one copy is ever staged.
+
+Deliberately scoped to this known artifact-name list rather than a bare
+`*.signature` glob — broad enough to cover this whole binary family without
+also silently masking an unrelated, legitimate "file already exists" failure
+from some other SPM package in a consumer's own app.
+
+The hook is guarded the same way as the embed phase: a failure to add the
+build phase warns via `Pod::UI` with the manual fallback command instead of
+failing `pod install` outright.
+
+## Expo precompiled module linkage repair
+
+Expo's prebuilt RNCore path activates a CocoaPods pre-install hook that changes React-Core-dependent pod targets to static libraries during `pod install`, even when the Podfile specifies `use_frameworks! :linkage => :dynamic` (required for Firebase SPM).
+
+The issue is a mutual-incompatibility between two separate mechanisms:
+
+- **Expo's scope**: Expo runs a pre-install hook that can downgrade
+  React-Core-dependent pod targets to static libraries before RNFB's product
+  generation restore point.
+- **SPM's scope**: each pod target has Firebase SPM products automatically
+  attached as dependencies via React Native's `spm_dependency`. When a pod
+  target is later marked static, those embedded SPM products (FirebaseCore,
+  etc.) are linked statically **inside** that pod's static archive. The
+  Podfile-level dynamic guard (`rnfirebase_fail_if_spm_static_linkage!`) runs
+  at post-install time and only sees the original declared linkage, not this
+  later per-pod mutation. It does not catch the per-pod-embedded-SPM case.
+- **Link-time consequence**: multiple static RNFB archives each carry an embedded
+  `FirebaseCore` copy. The app link reports duplicate symbols because the
+  product archives include conflicting FirebaseCore objects.
+
+### Chosen repair
+
+`rnfirebase_restore_dynamic_linkage_after_expo_prebuilt!` restores RNFB
+targets to dynamic frameworks when:
+
+1. SPM is active (`RNFirebaseSPM.active?`),
+2. Expo precompiled modules are active and report dynamic linkage intent
+   (`Expo::PrecompiledModules.enabled?` and
+   `Expo::PrecompiledModules.linkage(installer) == :dynamic`), and
+3. One or more RNFB targets are currently static.
+
+RNFB wraps CocoaPods' `generate_pods_project` phase and restores RNFB targets
+immediately before CocoaPods reads pod target build types to generate products
+and link inputs. This timing catches autolinking downgrades that happened in
+Expo's pre-install hook. The helper redefines the `build_type` method on each
+RNFB static target to return `dynamic_framework` instead, restoring those
+targets to dynamic linkage and eliminating the embedded SPM duplicate. When SPM is inactive, source-built Expo, non-Expo apps, and already-dynamic
+targets are unaffected (Firebase 13+ always activates SPM; DisableSPM fails
+loud and never reaches this restore).
+
+If CocoaPods no longer exposes `generate_pods_project`, RNFB cannot install
+the restore at the required boundary. Expo-precompiled installs warn once per
+installer class and continue without the restore; non-Expo and source-built
+Expo paths do not warn.
+
+### Regression check
+
+The documented Podfile configuration does not change: SPM on,
+`use_frameworks! :linkage => :dynamic`, prebuilt RNCore on. The canonical regression
+closer is **`yarn test-expo:ios:link`** ([agent command policy](testing/agent-command-policy.md)).
+That command is **build-only** (`xcodebuild build`; it does not launch the app).
+Link success confirms every discovered `RNFB*` CocoaPods product is a framework
+and duplicate Firebase symbols are absent, while still validating the app target's
+own FirebaseCore dependency. Discovery is dynamic against the generated Pods
+project. Packages with no iOS native target (pure-JS `packages/ai`, Android-only
+`packages/phone-number-verification`) do not produce an `RNFB*` product and are
+not in that graph. Named App+Messaging GitHub
+[#9158](https://github.com/invertase/react-native-firebase/issues/9158) /
+[#9202](https://github.com/invertase/react-native-firebase/issues/9202)
+signatures remain nested inside that generic gate. Do not hard-code an inventory
+name list here. See
+[Maintainer check of the Expo documented path](#app-target-firebasecore-link-package-dependency-alone-is-not-enough).
+The [#9202](https://github.com/invertase/react-native-firebase/issues/9202)
+regression signature is duplicate `_FIRFirebaseVersion` symbols from
+`libRNFBApp.a` and `libRNFBMessaging.a`.
+
+## Review invariants
+
+When native Firebase imports or SPM products change, review the diff for these
+invariants:
+
+- no umbrella-header-to-`@import` fallback without a real product-header branch;
+- when product headers/modules are absent on a platform because upstream SPM
+  wrap targets omit `.macCatalyst` (App Distribution, Performance, In-App
+  Messaging — see table above), stub/reject — never `@import` from `.mm` and
+  never `-fcxx-modules`;
+- no direct Swift-product Firebase import, Firebase-typed declaration, or
+  Firebase-bearing shared header in a `.mm` translation unit;
+- no `-fcxx-modules` build setting;
+- no private/transitive Firebase target added as if it were a public product;
+- SPM mode still adds exactly one app framework-embedding phase;
+- user-project SPM helpers (`rnfirebase_add_spm_core_to_app_target`, RNFB
+  embed phase) still run from `post_integrate` (after `[CP] Embed Pods
+  Frameworks` exists), not from `post_install`, except the older-CocoaPods
+  fallback that has no `post_integrate`;
+- `rnfirebase_add_spm_core_to_app_target`'s guard still checks for a matching
+  `PBXBuildFile`/`product_ref` on the Frameworks build phase, not just a
+  `package_product_dependencies` entry, so it self-heals a pre-fix
+  consumer's checked-in `.pbxproj` instead of treating a declared-but-unlinked
+  dependency as already done; and `rnfirebase_remove_spm_core_from_app_target`
+  removes both artifacts symmetrically;
+- SPM firebase-ios-sdk package requirement is `{ kind: 'exactVersion',
+  version: version }` equal to `sdkVersions.ios.firebase` in both
+  `firebase_dependency` and app-target `package_references`; reusing an
+  existing package reference still rewrites leftover `upToNextMajorVersion`.
+  CocoaPods Firebase `spec.dependency` pins stay removed (fail-loud);
+- `rnfirebase_apply_spm_build_settings` still adds `-ObjC` to user-project
+  native targets **and** every RNFB pod target (so `RNFBAnalytics` keeps
+  Measurement categories); do not add CocoaPods-only `IdentitySupport` on
+  the SPM path;
+- `embed_frameworks_from`'s Archive `UninstalledProducts` path still skips
+  frameworks whose internal binary is missing or not `dynamically linked`
+  (`file -b`), so static CocoaPods products are never copied into the app
+  `Frameworks/` directory;
+- docs/comments must not claim firebase-ios-sdk SPM products use
+  `.library(type: .dynamic)`; products are automatic libraries, and multi-pod
+  FirebaseCore sharing under SPM is unsupported (there is no CocoaPods Firebase
+  fallback — `$RNFirebaseDisableSPM` fails loud);
+- if a Firebase/Google SPM package adds a new `.binaryTarget` xcframework to
+  the resolved graph (e.g. a firebase-ios-sdk version bump),
+  `RNFIREBASE_SPM_SIGNATURE_FIX_ARTIFACT_NAMES` is re-checked against a clean
+  `-resolvePackageDependencies` run rather than assumed still complete;
+- Debug and Release builds are SPM-only, and the real-device archive job
+  verifies that every `@rpath` framework dependency is embedded;
+- when Expo precompiled modules are active, `rnfirebase_restore_dynamic_linkage_after_expo_prebuilt!`
+  still restores RNFB targets from static back to dynamic if Expo's pre-install
+  hook downgraded them, and `yarn test-expo:ios:link` still passes with every
+  discovered `RNFB*` product a framework and no duplicate Firebase symbols.
+
+The bullets above are the SPM-specific review checklist. General build, lint,
+and evidence requirements are owned by the
+[validation checklist](testing/validation-checklist.md) and
+[change authoring workflow](testing/change-authoring-workflow.md). The archive
+job's purpose and limitations are owned by
+[iOS CI workflows](ci-workflows/ios.md#ios-release-archive-job--real-device-archive-validation).

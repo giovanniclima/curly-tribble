@@ -1,0 +1,11 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["lib/index.ts"],
+  "tsconfig": "tsconfig.json",
+  "excludeInternal": true,
+  "intentionallyNotExported": [
+    "Observer",
+    "AuthInternal",
+    "OAuthCredentialParams"
+  ]
+}

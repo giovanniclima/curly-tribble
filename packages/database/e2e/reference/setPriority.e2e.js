@@ -1,0 +1,109 @@
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+const { PATH, CONTENT, seed, wipe } = require('../helpers');
+
+const TEST_PATH = `${PATH}/priority`;
+
+describe('database().ref().setPriority()', function () {
+  before(async function () {
+    await seed(TEST_PATH);
+  });
+
+  after(async function () {
+    await wipe(TEST_PATH);
+  });
+
+  describe('modular', function () {
+    it('throws if priority is not a valid type', async function () {
+      const { getDatabase, ref, setPriority } = databaseModular;
+      const db = getDatabase();
+      const dbRef = ref(db);
+
+      try {
+        await setPriority(dbRef, {});
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql("'priority' must be a number, string or null value");
+        return Promise.resolve();
+      }
+    });
+
+    it('should correctly set a priority for all non-null values', async function () {
+      const { getDatabase, ref, setPriority, get } = databaseModular;
+
+      await Promise.all(
+        Object.keys(CONTENT.TYPES).map(async dataRef => {
+          const db = getDatabase();
+          const dbRef = ref(db, `${TEST_PATH}/types/${dataRef}`);
+
+          await setPriority(dbRef, 1);
+          const snapshot = await get(dbRef);
+          if (snapshot.val() !== null) {
+            snapshot.getPriority().should.eql(1);
+          }
+        }),
+      );
+    });
+
+    // Upstream #9339: native must decode the iOS null sentinel { __rnfbNull: true }.
+    it('clears an existing priority when it is set to null (#9339)', async function () {
+      const { getDatabase, ref, set, setPriority, get } = databaseModular;
+      const dbRef = ref(getDatabase(), `${TEST_PATH}/nullPriority`);
+
+      await set(dbRef, { a: 1 });
+      await setPriority(dbRef, 1);
+      await setPriority(dbRef, null);
+
+      const snapshot = await get(dbRef);
+      snapshot.val().should.eql(jet.contextify({ a: 1 }));
+      should.equal(snapshot.getPriority(), null);
+      JSON.stringify(snapshot.val()).should.not.containEql('__rnfbNull');
+      JSON.stringify(snapshot.getPriority()).should.not.containEql('__rnfbNull');
+      JSON.stringify(snapshot.exportVal()).should.not.containEql('__rnfbNull');
+    });
+
+    it('throws if setting priority on non-existent node', async function () {
+      const { getDatabase, ref, setPriority } = databaseModular;
+      const db = getDatabase();
+      const dbRef = ref(db, 'tests/siudfhsuidfj');
+
+      try {
+        await setPriority(dbRef, 1);
+        return Promise.reject(new Error('Did not throw error.'));
+      } catch (_) {
+        // WEB SDK: INVALID_PARAMETERS: could not set priority on non-existent node
+        // TODO Get this error? Native code = -999 Unknown
+        return Promise.resolve();
+      }
+    });
+
+    it('throws if permission defined', async function () {
+      const { getDatabase, ref, setPriority } = databaseModular;
+      const db = getDatabase();
+      const dbRef = ref(db, 'nope/foo');
+
+      try {
+        await setPriority(dbRef, 1);
+        return Promise.reject(new Error('Did not throw error.'));
+      } catch (error) {
+        error.code.includes('database/permission-denied').should.be.true();
+        return Promise.resolve();
+      }
+    });
+  });
+});

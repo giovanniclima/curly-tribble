@@ -1,0 +1,108 @@
+---
+type: Reference
+title: Other CI workflows
+description: macOS and shared CI pipeline behavior, known failure modes, mitigations, and troubleshooting guidance.
+tags: [ci, macos, e2e, metro, jet, troubleshooting]
+timestamp: 2026-08-26T00:00:00Z
+---
+
+# Other CI workflows
+
+## macOS e2e (`tests_e2e_other.yml`)
+
+Local macOS e2e: [running e2e § Rules](../testing/running-e2e.md#rules) only. CI pipeline below mirrors `tests_e2e_other.yml` (uses `-ci` packager variants).
+
+**Dual-app pins:** CI macOS stays on **`tests-macos/`** RN **0.78.3** + `react-native-macos@0.78.6`. Mobile Detox (`tests/`) is on RN **0.86.2** and owns codegen. See [test app dependency pins](../testing/test-app-dependency-pins.md).
+
+<a id="metro-bundler-cache"></a>
+
+**Metro bundler cache** — restore key `${{ runner.os }}-macos-metro-v2-<hashFiles(…)>` (same shared `tests/` + `packages` inputs as mobile, plus `tests-macos` package/metro/index/react-native config; restore-keys prefix `…-macos-metro-v2-`). Save on `main` only when `matrix.iteration == 0` and restore was an exact miss (`cache-hit != 'true'`). Shared policy: [CI workflows index](index.md#shared-e2e-dependencies).
+
+<a id="xcode-ccache"></a>
+
+**Xcode ccache** — `hendrikmuhs/ccache-action` with `append-timestamp: false` and sticky key `${{ runner.os }}-e2e-macos-v3-xcode27-<hashFiles(…)>` over `yarn.lock`, podspecs, `packages/*/ios/**` (native sources; no `packages/*/macos` tree), and `tests-macos/macos/Podfile.lock`. Save on `main` when `matrix.iteration == 0`. Shared policy: [CI workflows index](index.md#shared-e2e-dependencies).
+
+### Pipeline (CI — mirrors `tests_e2e_other.yml`; local operators use [running e2e](../testing/running-e2e.md) only)
+
+1. Build macOS app (`tests:macos:build` from `tests-macos/`, `SKIP_BUNDLING=1`)
+2. Start Firestore emulator
+3. Start Metro (`tests:macos:packager:jet-ci` — CI variant; local: `yarn tests:macos:packager:jet`)
+4. **Pre-fetch JS bundle**; URL must match app request
+5. `tests:macos:test-cover` — internal `before` hook prefetches, then `open` app
+
+### CI failure: `swiftCompatibility56` / SharedAsyncStorage undefined symbols
+
+**Symptom** — `yarn tests:macos:build` / `** BUILD FAILED **` with:
+
+```
+Undefined symbols for architecture arm64
+  "__swift_FORCE_LOAD_$_swiftCompatibility56_$_SharedAsyncStorage"
+  "__swift_FORCE_LOAD_$_swiftCompatibilityConcurrency_$_SharedAsyncStorage"
+```
+
+**Cause** — async-storage 3.x vendors `SharedAsyncStorage.xcframework` (Swift). On Xcode 26 GitHub runners, the MetalToolchain cryptex is preferred for linker search paths and does not ship Swift compatibility static libs ([actions/runner-images#13135](https://github.com/actions/runner-images/issues/13135)).
+
+**Mitigations in this repo**
+
+| Change | Location |
+|--------|----------|
+| `TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault` job env | `.github/workflows/tests_e2e_other.yml` |
+| Same default in `build:macos` | `tests-macos/package.json` |
+| App-target `OTHER_LDFLAGS` explicit `-lswiftCompatibility56` / `Concurrency` / `Packs` via `DT_TOOLCHAIN_DIR` | `tests-macos/macos/Podfile` `post_install` |
+
+### CI failure: bundle load hang / `Could not connect to development server`
+
+**Symptom** — `[💻] macOS app started` but no `[🟩] Jet client connected`; `syslog` shows:
+
+```
+HTTP load failed, <partial>/<bundle-size> bytes (error code: -1017)
+Could not connect to development server.
+URL: http://localhost:8081/index.bundle?platform=macos&...&inlineSourceMap=false...
+```
+
+**Cause**
+
+1. **Startup race** — app opened before Metro finished bundle; native HTTP got truncated response (`-1017`), JS never loaded.
+2. **Prefetch URL mismatch** — warmed URL differed from app request, causing cache miss and second bundle build.
+3. **`localhost` vs `127.0.0.1`** — same class as [iOS AppDelegate](ios.md#operational-notes); macOS may use `::1` while Metro streams.
+
+**Mitigations in this repo**
+
+| Change | Location |
+|--------|----------|
+| `127.0.0.1` + explicit `inlineSourceMap:YES` bundle URL (mirrors iOS) | `tests-macos/macos/io.invertase.testing-macOS/AppDelegate.mm` |
+| `waitForMetroMacosBundle()` before `open` app | `tests-macos/.jetrc.js` → `macos.before` |
+| CI prefetch uses **exact** bundle query string (127.0.0.1, `lazy`, `inlineSourceMap=true`, `app=`) | `.github/workflows/tests_e2e_other.yml` |
+| Shared JS harness from `../tests` (no suite copies) | `tests-macos/index.js` + Metro `watchFolders` |
+
+**Diagnosing**
+
+```bash
+rg 'Could not connect to development server|HTTP load failed|Jet client connected|macOS Metro bundle prefetched' detox-step.log syslog.log
+log show --predicate 'process == "io.invertase.testing"' --last 10m --style compact | rg 'development server|HTTP load failed'
+# Slotted concurrent macOS: substitute RNFB_MACOS_PRODUCT_NAME (e.g. io.invertase.testing.s1)
+```
+
+### CI failure: `tryDeserialize is not a function` (mocha-remote-server patch)
+
+**Symptom** — crash on first WS message:
+
+```
+TypeError: (0 , serialization_1.tryDeserialize) is not a function
+    at Server.handleMessage (.../mocha-remote-server/dist/Server.js:149)
+```
+
+**Cause** — patch called `tryDeserialize` but did not add it to `dist/serialization.js`.
+
+**Fix** — export `tryDeserialize` in `.yarn/patches/mocha-remote-server-npm-1.13.2-*.patch`; run `yarn patch-commit` + `yarn install`.
+
+### Related
+
+- [iOS CI](ios.md) — simulator + Detox; shared Jet / mocha-remote patches
+- [Coverage design](../testing/coverage-design.md) — macOS uploads `e2e-ts-macos` only (no native gate)
+- [Cloud API quota triage](../testing/firebase-testing-project.md#ci-triage-cloud-api-quota-pressure) — live FIS/RC pressure (macOS loads RC; shared project with all matrix legs)
+- [Test app dependency pins](../testing/test-app-dependency-pins.md) — intentional test-app RN / CLI locks
+
+## Windows / shared
+
+TBD — Windows workflows and shared actions (caches, Codecov, etc.).

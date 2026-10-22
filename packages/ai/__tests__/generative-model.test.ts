@@ -1,0 +1,828 @@
+/**
+ * @license
+ * Copyright 2024 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { describe, expect, it, jest } from '@jest/globals';
+import { type ReactNativeFirebase } from '@react-native-firebase/app';
+import { GenerativeModel } from '../lib/models/generative-model';
+import { AI, FunctionCallingMode, ThinkingLevel } from '../lib/public-types';
+import * as request from '../lib/requests/request';
+import { BackendName, getMockResponse, getMockResponseStreaming } from './test-utils/mock-response';
+import { AgentPlatformBackend } from '../lib/backend';
+import { GenerateContentResponse } from '../lib';
+
+const fakeAI: AI = {
+  app: {
+    name: 'DEFAULT',
+    automaticDataCollectionEnabled: true,
+    options: {
+      apiKey: 'key',
+      projectId: 'my-project',
+      appId: 'my-appid',
+    },
+  } as ReactNativeFirebase.FirebaseApp,
+  backend: new AgentPlatformBackend('us-central1'),
+  location: 'us-central1',
+};
+
+function responseFromJson(json: GenerateContentResponse): Response {
+  return { json: async () => json } as Response;
+}
+
+describe('GenerativeModel', () => {
+  it('passes CodeExecutionTool and URLContextTool with other tools through to generateContent', async function () {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: 'myfunc',
+              description: 'mydesc',
+            },
+          ],
+        },
+        { googleSearch: {} },
+        { codeExecution: {} },
+        { urlContext: {} },
+      ],
+      toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.NONE } },
+      systemInstruction: { role: 'system', parts: [{ type: 'text', text: 'be friendly' }] },
+    });
+    expect(genModel.tools?.length).toBe(4);
+    expect(genModel.toolConfig?.functionCallingConfig?.mode).toBe(FunctionCallingMode.NONE);
+    expect((genModel.systemInstruction?.parts[0] as { text: string }).text).toBe('be friendly');
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+    await genModel.generateContent('hello');
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.GENERATE_CONTENT,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringMatching(
+        new RegExp(
+          `myfunc|googleSearch|codeExecution|urlContext|${FunctionCallingMode.NONE}|be friendly`,
+        ),
+      ),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('passes params through to generateContent', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: 'myfunc',
+              description: 'mydesc',
+            },
+          ],
+        },
+      ],
+      toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.NONE } },
+      systemInstruction: { role: 'system', parts: [{ type: 'text', text: 'be friendly' }] },
+    });
+    expect(genModel.tools?.length).toBe(1);
+    expect(genModel.toolConfig?.functionCallingConfig?.mode).toBe(FunctionCallingMode.NONE);
+    expect((genModel.systemInstruction?.parts[0] as { text: string }).text).toBe('be friendly');
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+    await genModel.generateContent('hello');
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.GENERATE_CONTENT,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringMatching(new RegExp(`myfunc|be friendly|${FunctionCallingMode.NONE}`)),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('merges per-call request options over model request options for generateContent', async () => {
+    const controller = new AbortController();
+    const genModel = new GenerativeModel(
+      fakeAI,
+      {
+        model: 'my-model',
+      },
+      {
+        timeout: 1000,
+        baseUrl: 'https://model.example.com',
+      },
+    );
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+
+    await genModel.generateContent('hello', {
+      timeout: 2000,
+      signal: controller.signal,
+    });
+
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestOptions: {
+          timeout: 2000,
+          baseUrl: 'https://model.example.com',
+          signal: controller.signal,
+        },
+      }),
+      expect.any(String),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('passes thinkingLevel through to generateContent', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      generationConfig: {
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.LOW,
+        },
+      },
+    });
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+
+    await genModel.generateContent('hello');
+
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.GENERATE_CONTENT,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringContaining(`"thinkingLevel":"${ThinkingLevel.LOW}"`),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('passes responseJsonSchema through to generateContent', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: {
+          type: 'object',
+          properties: {
+            answer: { type: 'string' },
+          },
+          required: ['answer'],
+        },
+      },
+    });
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+
+    await genModel.generateContent('hello');
+
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.GENERATE_CONTENT,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringContaining('"responseJsonSchema":{"type":"object"'),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('throws when thinkingBudget and thinkingLevel are both set', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      generationConfig: {
+        thinkingConfig: {
+          thinkingBudget: 100,
+          thinkingLevel: ThinkingLevel.HIGH,
+        },
+      },
+    });
+    const makeRequestStub = jest.spyOn(request, 'makeRequest');
+
+    await expect(genModel.generateContent('hello')).rejects.toThrow(
+      'Cannot set both thinkingBudget and thinkingLevel in a config.',
+    );
+    expect(makeRequestStub).not.toHaveBeenCalled();
+    makeRequestStub.mockRestore();
+  });
+
+  it('passes params through to generateContentStream', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      systemInstruction: 'be friendly',
+    });
+    const mockResponse = getMockResponseStreaming(
+      BackendName.VertexAI,
+      'streaming-success-basic-reply-short.txt',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+    const result = await genModel.generateContentStream('hello');
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.STREAM_GENERATE_CONTENT,
+        stream: true,
+      }),
+      expect.stringMatching(/hello|be friendly/),
+    );
+    const aggregated = await result.response;
+    expect(aggregated.text().length).toBeGreaterThan(0);
+    makeRequestStub.mockRestore();
+  });
+
+  it('merges per-call request options over model request options for countTokens', async () => {
+    const controller = new AbortController();
+    const genModel = new GenerativeModel(
+      fakeAI,
+      {
+        model: 'my-model',
+      },
+      {
+        timeout: 1000,
+        baseUrl: 'https://model.example.com',
+      },
+    );
+    const makeRequestStub = jest.spyOn(request, 'makeRequest').mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ totalTokens: 1 }),
+    } as Response);
+
+    await genModel.countTokens('hello', {
+      timeout: 2000,
+      signal: controller.signal,
+    });
+
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: request.Task.COUNT_TOKENS,
+        requestOptions: {
+          timeout: 2000,
+          baseUrl: 'https://model.example.com',
+          signal: controller.signal,
+        },
+      }),
+      expect.any(String),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('passes text-only systemInstruction through to generateContent', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      systemInstruction: 'be friendly',
+    });
+    expect((genModel.systemInstruction?.parts[0] as { text: string }).text).toBe('be friendly');
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+    await genModel.generateContent('hello');
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.GENERATE_CONTENT,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringContaining('be friendly'),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('generateContent overrides model values', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: 'myfunc',
+              description: 'mydesc',
+            },
+          ],
+        },
+      ],
+      toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.NONE } },
+      systemInstruction: { role: 'system', parts: [{ type: 'text', text: 'be friendly' }] },
+    });
+    expect(genModel.tools?.length).toBe(1);
+    expect(genModel.toolConfig?.functionCallingConfig?.mode).toBe(FunctionCallingMode.NONE);
+    expect((genModel.systemInstruction?.parts[0] as { text: string }).text).toBe('be friendly');
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+    await genModel.generateContent({
+      contents: [{ role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+      tools: [
+        {
+          functionDeclarations: [{ name: 'otherfunc', description: 'otherdesc' }],
+        },
+      ],
+      toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
+      systemInstruction: { role: 'system', parts: [{ type: 'text', text: 'be formal' }] },
+    });
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.GENERATE_CONTENT,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringMatching(new RegExp(`be formal|otherfunc|${FunctionCallingMode.AUTO}`)),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('automatically calls functionReference from generateContent function calls', async () => {
+    const getWeather = jest.fn<(args: object) => object>().mockReturnValue({ temperature: 72 });
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: 'getWeather',
+              description: 'Gets weather for a city.',
+              functionReference: getWeather,
+            },
+          ],
+        },
+      ],
+    });
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValueOnce(
+        responseFromJson({
+          candidates: [
+            {
+              index: 0,
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    type: 'functionCall',
+                    functionCall: {
+                      id: 'call-1',
+                      name: 'getWeather',
+                      args: { city: 'London' },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        responseFromJson({
+          candidates: [
+            {
+              index: 0,
+              content: {
+                role: 'model',
+                parts: [{ type: 'text', text: 'It is 72 degrees.' }],
+              },
+            },
+          ],
+        }),
+      );
+
+    const result = await genModel.generateContent('weather in London');
+
+    expect(result.response.text()).toBe('It is 72 degrees.');
+    expect(getWeather).toHaveBeenCalledWith({ city: 'London' });
+    expect(makeRequestStub).toHaveBeenCalledTimes(2);
+    const followUpBody = JSON.parse(makeRequestStub.mock.calls[1]![1] as string);
+    expect(followUpBody.contents).toEqual([
+      {
+        role: 'user',
+        parts: [{ text: 'weather in London' }],
+      },
+      {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              id: 'call-1',
+              name: 'getWeather',
+              args: { city: 'London' },
+            },
+          },
+        ],
+      },
+      {
+        role: 'function',
+        parts: [
+          {
+            functionResponse: {
+              id: 'call-1',
+              name: 'getWeather',
+              response: { temperature: 72 },
+            },
+          },
+        ],
+      },
+    ]);
+    makeRequestStub.mockRestore();
+  });
+
+  it('returns the latest response when maxSequentialFunctionCalls is reached', async () => {
+    const getWeather = jest.fn<(args: object) => object>().mockReturnValue({ temperature: 72 });
+    const genModel = new GenerativeModel(
+      fakeAI,
+      {
+        model: 'my-model',
+        tools: [
+          {
+            functionDeclarations: [
+              {
+                name: 'getWeather',
+                description: 'Gets weather for a city.',
+                functionReference: getWeather,
+              },
+            ],
+          },
+        ],
+      },
+      { maxSequentialFunctionCalls: 1 },
+    );
+    const functionCallResponse: GenerateContentResponse = {
+      candidates: [
+        {
+          index: 0,
+          content: {
+            role: 'model',
+            parts: [
+              {
+                type: 'functionCall',
+                functionCall: {
+                  name: 'getWeather',
+                  args: { city: 'London' },
+                },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValueOnce(responseFromJson(functionCallResponse))
+      .mockResolvedValueOnce(responseFromJson(functionCallResponse));
+
+    const result = await genModel.generateContent('weather in London');
+
+    expect(result.response.functionCalls()).toEqual([
+      { name: 'getWeather', args: { city: 'London' } },
+    ]);
+    expect(getWeather).toHaveBeenCalledTimes(1);
+    expect(makeRequestStub).toHaveBeenCalledTimes(2);
+    makeRequestStub.mockRestore();
+  });
+
+  it('passes base model params through to ChatSession when there are no startChatParams', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      generationConfig: {
+        topK: 1,
+      },
+    });
+    const chatSession = genModel.startChat();
+    expect(chatSession.params?.generationConfig).toEqual({
+      topK: 1,
+    });
+  });
+
+  it('overrides base model params with startChatParams', () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      generationConfig: {
+        topK: 1,
+      },
+    });
+    const chatSession = genModel.startChat({
+      generationConfig: {
+        topK: 2,
+      },
+    });
+    expect(chatSession.params?.generationConfig).toEqual({
+      topK: 2,
+    });
+  });
+
+  it('passes params through to chat.sendMessage', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      tools: [{ functionDeclarations: [{ name: 'myfunc', description: 'mydesc' }] }],
+      toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.NONE } },
+      systemInstruction: { role: 'system', parts: [{ type: 'text', text: 'be friendly' }] },
+    });
+    expect(genModel.tools?.length).toBe(1);
+    expect(genModel.toolConfig?.functionCallingConfig?.mode).toBe(FunctionCallingMode.NONE);
+    expect((genModel.systemInstruction?.parts[0] as { text: string }).text).toBe('be friendly');
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+    await genModel.startChat().sendMessage('hello');
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.GENERATE_CONTENT,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringMatching(new RegExp(`myfunc|be friendly|${FunctionCallingMode.NONE}`)),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('automatically calls functionReference from chat.sendMessage function calls', async () => {
+    const getWeather = jest.fn<(args: object) => object>().mockReturnValue({ temperature: 72 });
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: 'getWeather',
+              description: 'Gets weather for a city.',
+              functionReference: getWeather,
+            },
+          ],
+        },
+      ],
+    });
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValueOnce(
+        responseFromJson({
+          candidates: [
+            {
+              index: 0,
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    type: 'functionCall',
+                    functionCall: {
+                      name: 'getWeather',
+                      args: { city: 'London' },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        responseFromJson({
+          candidates: [
+            {
+              index: 0,
+              content: {
+                role: 'model',
+                parts: [{ type: 'text', text: 'It is 72 degrees.' }],
+              },
+            },
+          ],
+        }),
+      );
+    const chat = genModel.startChat();
+
+    const result = await chat.sendMessage('weather in London');
+    const history = await chat.getHistory();
+
+    expect(result.response.text()).toBe('It is 72 degrees.');
+    expect(getWeather).toHaveBeenCalledWith({ city: 'London' });
+    expect(makeRequestStub).toHaveBeenCalledTimes(2);
+    expect(history).toEqual([
+      {
+        role: 'user',
+        parts: [{ type: 'text', text: 'weather in London' }],
+      },
+      {
+        role: 'model',
+        parts: [
+          {
+            type: 'functionCall',
+            functionCall: {
+              name: 'getWeather',
+              args: { city: 'London' },
+            },
+          },
+        ],
+      },
+      {
+        role: 'function',
+        parts: [
+          {
+            type: 'functionResponse',
+            functionResponse: {
+              name: 'getWeather',
+              response: { temperature: 72 },
+            },
+          },
+        ],
+      },
+      {
+        role: 'model',
+        parts: [{ type: 'text', text: 'It is 72 degrees.' }],
+      },
+    ]);
+    makeRequestStub.mockRestore();
+  });
+
+  it('passes CodeExecutionTool through to chat.sendMessage', async function () {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      tools: [
+        { functionDeclarations: [{ name: 'myfunc', description: 'mydesc' }] },
+        { googleSearch: {} },
+        { codeExecution: {} },
+      ],
+      toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.NONE } },
+      systemInstruction: { role: 'system', parts: [{ type: 'text', text: 'be friendly' }] },
+      generationConfig: { topK: 1 },
+    });
+    expect(genModel.tools?.length).toBe(3);
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+    await genModel.startChat().sendMessage('hello');
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.GENERATE_CONTENT,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringMatching(
+        new RegExp(
+          `myfunc|googleSearch|codeExecution|${FunctionCallingMode.NONE}|be friendly|topK`,
+        ),
+      ),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('passes text-only systemInstruction through to chat.sendMessage', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      systemInstruction: 'be friendly',
+    });
+    expect((genModel.systemInstruction?.parts[0] as { text: string }).text).toBe('be friendly');
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+    await genModel.startChat().sendMessage('hello');
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.GENERATE_CONTENT,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringContaining('be friendly'),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('startChat overrides model values', async () => {
+    const genModel = new GenerativeModel(fakeAI, {
+      model: 'my-model',
+      tools: [{ functionDeclarations: [{ name: 'myfunc', description: 'mydesc' }] }],
+      toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.NONE } },
+      systemInstruction: { role: 'system', parts: [{ type: 'text', text: 'be friendly' }] },
+    });
+    expect(genModel.tools?.length).toBe(1);
+    expect(genModel.toolConfig?.functionCallingConfig?.mode).toBe(FunctionCallingMode.NONE);
+    expect((genModel.systemInstruction?.parts[0] as { text: string }).text).toBe('be friendly');
+    const mockResponse = getMockResponse(
+      BackendName.VertexAI,
+      'unary-success-basic-reply-short.json',
+    );
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+    await genModel
+      .startChat({
+        tools: [
+          {
+            functionDeclarations: [{ name: 'otherfunc', description: 'otherdesc' }],
+          },
+        ],
+        toolConfig: {
+          functionCallingConfig: { mode: FunctionCallingMode.AUTO },
+        },
+        systemInstruction: { role: 'system', parts: [{ type: 'text', text: 'be formal' }] },
+      })
+      .sendMessage('hello');
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.GENERATE_CONTENT,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringMatching(new RegExp(`otherfunc|be formal|${FunctionCallingMode.AUTO}`)),
+    );
+    makeRequestStub.mockRestore();
+  });
+
+  it('calls countTokens', async () => {
+    const genModel = new GenerativeModel(fakeAI, { model: 'my-model' });
+    const mockResponse = getMockResponse(BackendName.VertexAI, 'unary-success-total-tokens.json');
+    const makeRequestStub = jest
+      .spyOn(request, 'makeRequest')
+      .mockResolvedValue(mockResponse as Response);
+    await genModel.countTokens('hello');
+    expect(makeRequestStub).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'publishers/google/models/my-model',
+        task: request.Task.COUNT_TOKENS,
+        apiSettings: expect.anything(),
+        stream: false,
+        requestOptions: {},
+      }),
+      expect.stringContaining('hello'),
+    );
+    makeRequestStub.mockRestore();
+  });
+});

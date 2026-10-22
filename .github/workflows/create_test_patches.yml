@@ -1,0 +1,123 @@
+name: 'Create Test Patches'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - '**'
+    paths-ignore:
+      - 'docs/**'
+      - 'website/**'
+      - '.spellcheck.dict.txt'
+      - '**/*.md'
+  pull_request:
+    branches:
+      - '**'
+    paths-ignore:
+      - 'docs/**'
+      - 'website/**'
+      - '.spellcheck.dict.txt'
+      - '**/*.md'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  main:
+    name: Create patch-package Patches
+    runs-on: ubuntu-latest
+    steps:
+      # https://github.com/actions/checkout/releases
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Future ideas:
+      # - make into an action, parameterize directories to pack, and package names to install
+      # - name patches w/PR as "semver prerelease" and SHA as "semver build info". Needs patch-package enhancement.
+      # https://github.com/actions/setup-node/releases
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Restore
+        id: yarn-cache
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-v1-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-yarn-v1
+
+      - name: Yarn Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: DETOX_DISABLE_POSTINSTALL=1 yarn
+
+      - name: Create Patches
+        env:
+          # yarn3+ by default disables lockfile alteration in CI. We want it.
+          YARN_ENABLE_IMMUTABLE_INSTALLS: false
+        run: |
+          ./.github/workflows/scripts/create_npm_packages.sh ./packages $HOME/packages
+          cd $HOME
+          npx @react-native-community/cli init template --skip-install --skip-git-init
+          cd template
+          yarn
+          yarn add patch-package --dev
+          mkdir patches || true
+          PACKED_PACKAGE_LIST=`find $HOME/packages/ -maxdepth 1 -mindepth 1 -type f -exec basename -s .tgz {} \; | cut -d'-' -f4-10 | sort`
+          for PACKAGE in $PACKED_PACKAGE_LIST; do
+            echo "Installing package $PACKAGE into fresh template app, then clobbering with PR version"
+            yarn add @react-native-firebase/$PACKAGE || true
+            if [ -d node_modules/@react-native-firebase/$PACKAGE ]; then
+              pushd node_modules/@react-native-firebase
+              tar -zxf $HOME/packages/react-native-firebase-${PACKAGE}.tgz
+              # yarn3+ pack does not handle the executable bits on our scripts correctly. Fix.
+              chmod 755 package/ios_config.sh && true
+              mv $PACKAGE/package.json package/
+              \rm -fr $PACKAGE
+              mv package $PACKAGE
+              popd
+              npx patch-package @react-native-firebase/$PACKAGE || true
+            fi
+          done
+          ls -la $HOME/template/patches
+        shell: bash
+
+      - name: Upload Test Patches
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: patches
+          path: ~/template/patches/
+
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Save
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-v1-${{ hashFiles('yarn.lock') }}
+
+      # create a comment on the PR and any related issues with a direct link to the archive,
+      # a call for testers, and perhaps a paste-able set of commands to install them
+      # (mkdir patches, curl -o etc, npx patch-package)
+      # You need an artifact id to get a download link for it.
+      # You need a workflow run id to get an artifact id.
+      # You need to list out all runs for a workflow and filter to get the run id.
+      # This action does all of that but needs a tweak to just kick out the URL instead of downloading:
+      # https://github.com/dawidd6/action-download-artifact/blob/master/main.js#L102
+      # Best strategy is to run this patch generator on pull_request
+      # Then run the issue commenter that dynamically de-references the artifact on workflow_run
+      # - name: Post Comment with Download Link
+      #   run: echo ${{ toJson(github) }}

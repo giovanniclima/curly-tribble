@@ -1,0 +1,386 @@
+name: Testing E2E Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Number of iterations to run. Default 1. Max 256.'
+        required: true
+        default: 1
+        type: number
+  pull_request:
+    branches:
+      - '**'
+    paths-ignore:
+      - 'docs/**'
+      - 'website/**'
+      - '.spellcheck.dict.txt'
+      - '**/*.md'
+
+  push:
+    branches:
+      - main
+      - release-v*
+    paths-ignore:
+      - 'docs/**'
+      - 'website/**'
+      - '.spellcheck.dict.txt'
+      - '**/*.md'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # We want to generate our matrix dynamically
+  # Initial job generates the matrix as a JSON, and following job will use deserialize and use the result
+  matrix_prep:
+    # Do not run the scheduled jobs on forks
+    if: (github.event_name == 'schedule' && github.repository == 'invertase/react-native-firebase') || (github.event_name != 'schedule')
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.result }}
+    steps:
+      - id: build-matrix
+        # https://github.com/actions/github-script/releases
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            // by default, we will run one iteration
+            let iterationArray = [0]
+
+            // workflow dispatch will be a drop-down of different options
+            if (context.eventName === "workflow_dispatch") {
+              const inputs = ${{ toJSON(inputs) }}
+              console.log('inputs is: ' + JSON.stringify(inputs))
+
+              const iterationInput = inputs.iterations
+              console.log('iterations input is: ' + iterationInput)
+              // this will expand for example with input 5 => [0, 1, 2, 3, 4]
+              iterationArray = []
+              for (let i = 0; i < iterationInput; i++) {
+                iterationArray.push(i);
+              }
+              console.log('iterationArray is: ' + iterationArray)
+            }
+
+            // If we are running on a schedule it's our periodic passive scan for flakes
+            // Goal is to run enough iterations on all systems that we have confidence there are no flakes
+            if (context.eventName === "schedule") {
+              const iterationCount = 15
+              for (let i = 0; i < iterationCount; i++) {
+                iterationArray.push(i);
+              }
+            }
+
+            // TODO Refactor to make these dynamic with a minSdk/max bracket only on schedule, not push
+            let apiLevel = [36];
+
+            // These are used for performance tuning what emulator to use.
+            // try different architectures, targets etc
+            let arch = ['x86_64'];
+            let target = ['google_apis'];
+
+            return {
+              "iteration": iterationArray,
+              "api-level": apiLevel,
+              "arch": arch,
+              "target": target
+            }
+      - name: Debug Output
+        run: echo "${{ steps.build-matrix.outputs.result }}"
+
+  # This uses the matrix generated from the matrix-prep stage
+  # it will run unit tests on whatever OS combinations are desired
+  android:
+    name: Android (${{ matrix.api-level }}, ${{ matrix.arch }}, ${{ matrix.target }}, ${{ matrix.iteration }})
+    runs-on: ubuntu-latest
+    needs: matrix_prep
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{fromJson(needs.matrix_prep.outputs.matrix)}}
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      NX_NO_CLOUD: true
+      NX_CACHE_DIRECTORY: .nx/cache
+      NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
+      # CI-only: override tests/android/gradle.properties multi-ABI defaults (same ORG_GRADLE_PROJECT_* pattern as Metro port)
+      ORG_GRADLE_PROJECT_reactNativeArchitectures: ${{ matrix.arch }}
+    steps:
+      - name: Free Disk Space (Ubuntu)
+        # https://github.com/AdityaGarg8/remove-unwanted-software/releases
+        uses: AdityaGarg8/remove-unwanted-software@90e01b21170618765a73370fcc3abbd1684a7793 # v5
+        with:
+          remove-dotnet: true
+          remove-haskell: true
+          remove-codeql: true
+          remove-docker-images: true
+          remove-large-packages: true # ths is slow, but recently we need that last ~2GB as of 20251120
+
+      - name: Post Free Disk Space (Ubuntu)
+        run: df -h
+
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install emulator host dependencies
+        # Newer emulator builds dlopen host libs on Linux; package list from Android emulator
+        # container scripts (Ubuntu 24.04 noble package names on ubuntu-latest):
+        # https://github.com/jpcottin/android-emulator-container-scripts/blob/0ec0fd00ff51aa09f83b20809f842b2c45293d99/emu/templates/Dockerfile.emulator#L30-L36
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libdbus-1-3 libfontconfig1 libgcc-s1 libgl1 libncurses6 libnss3 libpulse0 \
+            libx11-6 libx11-xcb1 libxcb-cursor0 libxcb1 libxcomposite1 libxcursor1 libxdamage1 \
+            libxext6 libxfixes3 libxi6 libxkbfile1 pulseaudio socat zlib1g
+
+      # https://github.com/actions/checkout/releases
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 50
+
+      # Set up tool versions
+      # https://github.com/actions/setup-node/releases
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Configure JDK
+        # https://github.com/actions/setup-java/releases
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # Set path variables needed for caches
+      - name: Set workflow variables
+        id: workflow-variables
+        run: |
+          echo "metro-cache=$HOME/.metro" >> $GITHUB_OUTPUT
+          echo "tempdir=$TMPDIR" >> $GITHUB_OUTPUT
+
+      - name: Yarn Cache Restore
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: yarn-cache
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-android-yarn-v1-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-android-yarn-v1
+
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Restore
+        id: nx-cache
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+          restore-keys: ${{ runner.os }}-nx-v1
+      - name: Yarn Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: DETOX_DISABLE_POSTINSTALL=1 yarn
+
+      - name: Resolve firebase-tools version
+        id: firebase-tools
+        run: |
+          VER=$(node -p "require('./node_modules/firebase-tools/package.json').version")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Firestore Emulator Restore
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: firestore-emulator-cache
+        continue-on-error: true
+        with:
+          # Cross-OS; keyed by installed/resolved firebase-tools version after yarn. This workflow is the sole saver on main (iOS/Other restore-only).
+          enableCrossOsArchive: true
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-v2-${{ steps.firebase-tools.outputs.version }}
+          restore-keys: firebase-emulators-v2-
+
+      - name: Start Firestore Emulator
+        run: yarn tests:emulator:start-ci
+
+      - name: Gradle Cache Restore
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: gradle-cache
+        continue-on-error: true
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-v2-${{ matrix.arch }}-${{ hashFiles('yarn.lock', 'tests/android/build.gradle', 'tests/android/app/build.gradle') }}
+          restore-keys: ${{ runner.os }}-gradle-v2-${{ matrix.arch }}-
+
+      - name: Build Android App
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 25
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: yarn tests:android:build
+
+      # JVM unit tests (no emulator). Produces module *.exec for merged Jacoco after Detox.
+      - name: Android JVM unit tests
+        run: yarn tests:android:unit
+
+      - name: Metro Bundler Cache Restore
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: metro-bundler-cache
+        continue-on-error: true
+        with:
+          path: ${{ steps.workflow-variables.outputs.metro-cache }}
+          # Sticky content-hash key (no run_id). Shared inputs with iOS/Other Metro caches.
+          key: ${{ runner.os }}-android-metro-v2-${{ hashFiles('yarn.lock', 'tests/package.json', 'tests/metro.config.js', 'tests/index.js', 'tests/app.js', 'tests/react-native.config.js', 'packages/*/package.json', 'packages/*/lib/**') }}
+          restore-keys: ${{ runner.os }}-android-metro-v2-
+
+      - name: Pre-fetch Javascript bundle
+        # Prebuild the bundle so that's fast when the app starts.
+        run: |
+          nohup yarn tests:packager:jet-ci &
+          printf 'Waiting for packager to come online'
+          until curl --output /dev/null --silent --head --fail http://localhost:8081/status; do
+            printf '.'
+            sleep 2
+          done
+          echo "Packager is online! Preparing javascript bundle..."
+          curl --output /dev/null --silent --head --fail "http://localhost:8081/index.bundle?platform=android&dev=true&minify=false&inlineSourceMap=true"
+          echo "...javascript bundle ready."
+
+      - name: Test Tapper
+        # Detox uses Espresso to choreograph UI events, we send a stream of taps to keep choreography moving quickly
+        # Run this outside the emulator runner so the emulator runner does not wait on it for cleanup
+        run: |
+          nohup sh -c "until false; do $ANDROID_HOME/platform-tools/adb shell input tap 100 800; sleep 0.2; done" &
+        shell: bash
+
+      - name: Prepare AVD home on /mnt
+        # GitHub-hosted runners mount a ~74GB volume at /mnt. Set ANDROID_AVD_HOME before
+        # android-emulator-runner creates the AVD (pre-emulator-launch-script runs too late
+        # for ln -s ~/.android/avd to relocate an already-created AVD off root disk).
+        run: |
+          sudo mkdir -p /mnt/avd
+          sudo chown "$USER:$USER" /mnt/avd
+          df -h / /mnt
+
+      - name: Detox Tests
+        # https://github.com/reactivecircus/android-emulator-runner/releases
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        timeout-minutes: 45
+        env:
+          ANDROID_AVD_HOME: /mnt/avd
+          ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL: 5
+        with:
+          api-level: ${{ matrix.api-level }}
+          avd-name: TestingAVD
+          target: ${{ matrix.target }}
+          disable-spellchecker: true
+          arch: ${{ matrix.arch }}
+          script: bash ./.github/workflows/scripts/android-e2e-detox.sh
+
+      # https://github.com/codecov/codecov-action/releases
+      - name: Upload Codecov e2e TS (Android)
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        continue-on-error: true
+        with:
+          files: coverage/lcov.info
+          flags: e2e-ts-android
+          disable_search: true
+          verbose: true
+
+      # Merged unit (*.exec) + e2e (*.ec) from jacocoTestReport (post-e2e-coverage).
+      - name: Upload Codecov Android native
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        continue-on-error: true
+        with:
+          files: tests/android/app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
+          flags: android-native
+          disable_search: true
+          verbose: true
+
+      - name: Upload Emulator Log
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: adb_logs_${{ matrix.api-level}}_${{ matrix.arch }}_${{ matrix.target }}_${{ matrix.iteration }}
+          path: adb-*.txt
+
+      - name: Upload Android resource monitor log
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: resource-monitor-android-${{ matrix.api-level }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.iteration }}
+          path: resource-monitor-android.log
+
+      - name: Upload Firebase emulator script logs
+        # https://github.com/actions/upload-artifact/releases
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        continue-on-error: true
+        if: always()
+        with:
+          name: emulator-scripts-logs-${{ matrix.api-level }}-${{ matrix.arch }}-${{ matrix.target }}-${{ matrix.iteration }}
+          path: .github/workflows/scripts/*.log
+
+      - name: Yarn Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ steps.yarn-cache.outputs.cache-primary-key }}
+
+      - name: Nx Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+
+      - name: Firestore Emulator Cache Save
+        # Sole saver for firebase-emulators-v2 (iOS/Other restore-only). See okf-bundle/ci-workflows/index.md.
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          enableCrossOsArchive: true
+          path: ~/.cache/firebase/emulators
+          key: ${{ steps.firestore-emulator-cache.outputs.cache-primary-key }}
+
+      - name: Gradle Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: ~/.gradle/caches
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
+
+      - name: Metro Bundler Cache Save
+        # https://github.com/actions/cache/releases
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main' && matrix.iteration == 0 && steps.metro-bundler-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        with:
+          path: ${{ steps.workflow-variables.outputs.metro-cache }}
+          key: ${{ steps.metro-bundler-cache.outputs.cache-primary-key }}

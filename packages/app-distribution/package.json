@@ -1,0 +1,102 @@
+{
+  "name": "@react-native-firebase/app-distribution",
+  "version": "27.0.0",
+  "author": "Invertase <oss@invertase.io> (http://invertase.io)",
+  "description": "React Native Firebase - App Distribution",
+  "main": "./dist/module/index.js",
+  "types": "./dist/typescript/lib/index.d.ts",
+  "codegenConfig": {
+    "name": "RNFBAppDistributionTurboModules",
+    "type": "modules",
+    "jsSrcsDir": "specs",
+    "includesGeneratedCode": true,
+    "android": {
+      "javaPackageName": "io.invertase.firebase.appdistribution"
+    },
+    "ios": {
+      "modulesProvider": {
+        "NativeRNFBTurboAppDistribution": "RNFBAppDistributionModule"
+      }
+    }
+  },
+  "scripts": {
+    "build": "genversion --esm --semi lib/version.ts",
+    "build:clean": "rimraf android/build && rimraf ios/build",
+    "build:plugin": "rimraf plugin/build && tsc --build plugin",
+    "compile": "bob build",
+    "lint:plugin": "eslint plugin/src/*",
+    "prepare": "yarn run build && yarn compile && yarn run build:plugin",
+    "codegen": "yarn android:codegen && yarn ios:codegen",
+    "android:codegen": "node ../../scripts/codegen-package.mjs app-distribution android",
+    "ios:codegen": "node ../../scripts/codegen-package.mjs app-distribution ios"
+  },
+  "homepage": "https://rnfirebase.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/invertase/react-native-firebase",
+    "directory": "packages/app-distribution"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "react",
+    "react-native",
+    "firebase",
+    "app-distribution"
+  ],
+  "peerDependencies": {
+    "@react-native-firebase/app": "27.0.0",
+    "expo": ">=47.0.0"
+  },
+  "devDependencies": {
+    "@react-native-firebase/app": "27.0.0",
+    "expo": "^55.0.18",
+    "react-native-builder-bob": "^0.41.0"
+  },
+  "peerDependenciesMeta": {
+    "expo": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "exports": {
+    ".": {
+      "source": "./lib/index.ts",
+      "types": "./dist/typescript/lib/index.d.ts",
+      "default": "./dist/module/index.js"
+    },
+    "./app.plugin": {
+      "types": "./plugin/build/app.plugin.d.ts",
+      "default": "./app.plugin.js"
+    },
+    "./app.plugin.js": {
+      "types": "./plugin/build/app.plugin.d.ts",
+      "default": "./app.plugin.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "react-native-builder-bob": {
+    "source": "lib",
+    "output": "dist",
+    "targets": [
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "typescript",
+        {
+          "tsc": "../../node_modules/.bin/tsc"
+        }
+      ]
+    ]
+  },
+  "eslintIgnore": [
+    "node_modules/",
+    "dist/"
+  ]
+}

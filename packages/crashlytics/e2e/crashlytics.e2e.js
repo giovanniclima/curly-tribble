@@ -1,0 +1,228 @@
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+describe('crashlytics()', function () {
+  describe('modular', function () {
+    describe('log()', function () {
+      it('accepts any value', async function () {
+        const { getCrashlytics, log } = crashlyticsModular;
+        const crashlytics = getCrashlytics();
+        log(crashlytics, 'invertase');
+        log(crashlytics, 1337);
+        log(crashlytics, null);
+        log(crashlytics, true);
+        log(crashlytics, {});
+        log(crashlytics, []);
+        log(crashlytics, () => {});
+      });
+    });
+
+    describe('setUserId()', function () {
+      it('accepts string values', async function () {
+        const { getCrashlytics, setUserId } = crashlyticsModular;
+        await setUserId(getCrashlytics(), 'invertase');
+      });
+
+      it('rejects none string values', async function () {
+        const { getCrashlytics, setUserId } = crashlyticsModular;
+        try {
+          await setUserId(getCrashlytics(), 666.1337);
+          return Promise.reject(new Error('Did not throw.'));
+        } catch (e) {
+          e.message.should.containEql('must be a string');
+        }
+      });
+    });
+
+    describe('setAttribute()', function () {
+      it('accepts string values', async function () {
+        const { getCrashlytics, setAttribute } = crashlyticsModular;
+        await setAttribute(getCrashlytics(), 'invertase', '1337');
+      });
+
+      it('rejects none string values', async function () {
+        const { getCrashlytics, setAttribute } = crashlyticsModular;
+        try {
+          await setAttribute(getCrashlytics(), 'invertase', 33.3333);
+          return Promise.reject(new Error('Did not throw.'));
+        } catch (e) {
+          e.message.should.containEql('must be a string');
+        }
+      });
+
+      it('errors if attribute name is not a string', async function () {
+        const { getCrashlytics, setAttribute } = crashlyticsModular;
+        try {
+          await setAttribute(getCrashlytics(), 1337, 'invertase');
+          return Promise.reject(new Error('Did not throw.'));
+        } catch (e) {
+          e.message.should.containEql('must be a string');
+        }
+      });
+    });
+
+    describe('setAttributes()', function () {
+      it('errors if arg is not an object', async function () {
+        const { getCrashlytics, setAttributes } = crashlyticsModular;
+        try {
+          await setAttributes(getCrashlytics(), 1337);
+          return Promise.reject(new Error('Did not throw.'));
+        } catch (e) {
+          e.message.should.containEql('must be an object');
+        }
+      });
+
+      it('accepts string values', async function () {
+        const { getCrashlytics, setAttributes } = crashlyticsModular;
+        await setAttributes(getCrashlytics(), { invertase: '1337' });
+      });
+    });
+
+    describe('recordError()', function () {
+      it('warns if not an error', async function () {
+        const { getCrashlytics, recordError } = crashlyticsModular;
+        // eslint-disable-next-line no-console
+        const orig = console.warn;
+        let logged = false;
+        // eslint-disable-next-line no-console
+        console.warn = msg => {
+          msg.should.containEql('expects an instance of Error');
+          logged = true;
+          // eslint-disable-next-line no-console
+          console.warn = orig;
+        };
+
+        recordError(getCrashlytics(), 1337);
+        should.equal(logged, true);
+      });
+
+      it('accepts Error values', async function () {
+        const { getCrashlytics, recordError } = crashlyticsModular;
+        recordError(getCrashlytics(), new Error("I'm a teapot!"));
+        // TODO verify stack obj
+      });
+
+      it('accepts optional jsErrorName', async function () {
+        const { getCrashlytics, recordError } = crashlyticsModular;
+        recordError(
+          getCrashlytics(),
+          new Error("I'm a teapot!"),
+          'This message will display in crashlytics dashboard',
+        );
+        // TODO verify stack obj
+      });
+    });
+
+    describe('sendUnsentReports()', function () {
+      it("sends unsent reports to the crashlytic's server", function () {
+        const { getCrashlytics, sendUnsentReports } = crashlyticsModular;
+        sendUnsentReports(getCrashlytics());
+      });
+    });
+
+    describe('checkForUnsentReports()', function () {
+      it('errors if automatic crash report collection is enabled', async function () {
+        const { getCrashlytics, setCrashlyticsCollectionEnabled, checkForUnsentReports } =
+          crashlyticsModular;
+        const crashlytics = getCrashlytics();
+        await setCrashlyticsCollectionEnabled(crashlytics, true);
+        try {
+          await checkForUnsentReports(crashlytics);
+          return Promise.reject('Error did not throw');
+        } catch (e) {
+          e.message.should.containEql("has been set to 'true', all reports are automatically sent");
+        }
+      });
+
+      it("checks device cache for unsent crashlytic's reports", async function () {
+        const { getCrashlytics, setCrashlyticsCollectionEnabled, checkForUnsentReports } =
+          crashlyticsModular;
+        const crashlytics = getCrashlytics();
+        await setCrashlyticsCollectionEnabled(crashlytics, false);
+        const anyUnsentReports = await checkForUnsentReports(crashlytics);
+
+        should(anyUnsentReports).equal(false);
+      });
+    });
+
+    describe('deleteUnsentReports()', function () {
+      it('deletes unsent crashlytics reports', async function () {
+        const { getCrashlytics, deleteUnsentReports } = crashlyticsModular;
+        await deleteUnsentReports(getCrashlytics());
+      });
+    });
+
+    describe('didCrashOnPreviousExecution()', function () {
+      // TODO: worked on Detox v17, fails after transition to v18. Why?
+      xit('checks if app crached on previous execution', async function () {
+        const { getCrashlytics, didCrashOnPreviousExecution } = crashlyticsModular;
+        const didCrash = await didCrashOnPreviousExecution(getCrashlytics());
+
+        should(didCrash).equal(false);
+      });
+    });
+
+    describe('native crashWithStackPromise()', function () {
+      // The collection-enabled path records the JS fatal and terminates the app, so only the
+      // collection-disabled path can run under e2e. Native re-reads the flag on every call.
+      it('resolves without terminating when collection is disabled', async function () {
+        const { getCrashlytics, setCrashlyticsCollectionEnabled } = crashlyticsModular;
+        const crashlytics = getCrashlytics();
+        const wasEnabled = crashlytics.isCrashlyticsCollectionEnabled;
+        await setCrashlyticsCollectionEnabled(crashlytics, false);
+        try {
+          // Internal native call: no public API reaches the collection-disabled native branch
+          // without raising a real JS fatal through the global error handler.
+          const result = await crashlytics.native.crashWithStackPromise({
+            message: 'e2e: collection disabled, must not terminate',
+            isUnhandledRejection: false,
+            frames: [{ fn: 'e2eFrame', file: 'crashlytics.e2e.js', line: 1, col: 1 }],
+          });
+          should.not.exist(result);
+        } finally {
+          await setCrashlyticsCollectionEnabled(crashlytics, wasEnabled);
+        }
+      });
+    });
+
+    describe('setCrashlyticsCollectionEnabled()', function () {
+      it('false', async function () {
+        const { getCrashlytics, setCrashlyticsCollectionEnabled } = crashlyticsModular;
+        const crashlytics = getCrashlytics();
+        await setCrashlyticsCollectionEnabled(crashlytics, false);
+        should.equal(crashlytics.isCrashlyticsCollectionEnabled, false);
+      });
+
+      it('true', async function () {
+        const { getCrashlytics, setCrashlyticsCollectionEnabled } = crashlyticsModular;
+        const crashlytics = getCrashlytics();
+        await setCrashlyticsCollectionEnabled(crashlytics, true);
+        should.equal(crashlytics.isCrashlyticsCollectionEnabled, true);
+      });
+
+      it('errors if not boolean', async function () {
+        const { getCrashlytics, setCrashlyticsCollectionEnabled } = crashlyticsModular;
+        try {
+          await setCrashlyticsCollectionEnabled(getCrashlytics(), 1337);
+          return Promise.reject(new Error('Did not throw.'));
+        } catch (e) {
+          e.message.should.containEql('must be a boolean');
+        }
+      });
+    });
+  });
+});

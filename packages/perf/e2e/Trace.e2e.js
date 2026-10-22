@@ -1,0 +1,376 @@
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+describe('Trace modular', function () {
+  describe('modular', function () {
+    describe('start()', function () {
+      it('correctly starts with internal flag ', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.start();
+        should.equal(traceInvertase._started, true);
+        traceInvertase.putAttribute('foo', 'bar');
+        traceInvertase.putMetric('stars', 9001);
+        await Utils.sleep(125);
+        traceInvertase.stop();
+      });
+
+      it('returns undefined if already started', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.start();
+        should.equal(traceInvertase._started, true);
+        should.equal(traceInvertase.start(), undefined);
+        await Utils.sleep(125);
+        traceInvertase.stop();
+      });
+    });
+
+    describe('stop()', function () {
+      it('correctly stops with internal flag ', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.start();
+        traceInvertase.putAttribute('foo', 'bar');
+        traceInvertase.putAttribute('bar', 'foo');
+        traceInvertase.putMetric('leet', 1337);
+        traceInvertase.putMetric('chickens', 12);
+        await Utils.sleep(100);
+        traceInvertase.stop();
+        should.equal(traceInvertase._stopped, true);
+      });
+
+      it('returns undefined if already stopped', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.start();
+        await Utils.sleep(100);
+        traceInvertase.stop();
+        should.equal(traceInvertase.stop(), undefined);
+      });
+    });
+    // describe('removeAttribute()', function () {
+    //   it('errors if not a string', async function () {
+    //     const { getPerformance, trace } = perfModular;
+    //     const perf = getPerformance();
+    //     const traceInvertase = trace(perf, 'invertase');
+    //     try {
+    //       traceInvertase.putAttribute('inver', 'tase');
+    //       traceInvertase.removeAttribute(13377331);
+    //       return Promise.reject(new Error('Did not throw'));
+    //     } catch (e) {
+    //       e.message.should.containEql('must be a string');
+    //       return Promise.resolve();
+    //     }
+    //   });
+    //   it('removes an attribute', async function () {
+    //     const { getPerformance, trace } = perfModular;
+    //     const perf = getPerformance();
+    //     const traceInvertase = trace(perf, 'invertase');
+    //     traceInvertase.putAttribute('inver', 'tase');
+    //     const value = traceInvertase.getAttribute('inver');
+    //     should.equal(value, 'tase');
+    //     traceInvertase.removeAttribute('inver');
+    //     const value2 = traceInvertase.getAttribute('inver');
+    //     should.equal(value2, null);
+    //   });
+    // });
+    describe('getAttribute()', function () {
+      it('should return null if attribute does not exist', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        const value = traceInvertase.getAttribute('inver');
+        should.equal(value, null);
+      });
+
+      it('should return an attribute string value', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.putAttribute('inver', 'tase');
+        const value = traceInvertase.getAttribute('inver');
+        should.equal(value, 'tase');
+      });
+    });
+
+    describe('putAttribute()', function () {
+      it('sets an attribute string value', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.putAttribute('inver', 'tase');
+        const value = traceInvertase.getAttribute('inver');
+        value.should.equal('tase');
+      });
+
+      it('errors if attribute name is not a string', async function () {
+        try {
+          const { getPerformance, trace } = perfModular;
+          const perf = getPerformance();
+          const traceInvertase = trace(perf, 'invertase');
+          traceInvertase.putAttribute(1337, 'invertase');
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('must be a string');
+          return Promise.resolve();
+        }
+      });
+
+      it('errors if attribute value is not a string', async function () {
+        try {
+          const { getPerformance, trace } = perfModular;
+          const perf = getPerformance();
+          const traceInvertase = trace(perf, 'invertase');
+          traceInvertase.putAttribute('invertase', 1337);
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('must be a string');
+          return Promise.resolve();
+        }
+      });
+
+      it('errors if attribute name is greater than 40 characters', async function () {
+        try {
+          const { getPerformance, trace } = perfModular;
+          const perf = getPerformance();
+          const traceInvertase = trace(perf, 'invertase');
+          traceInvertase.putAttribute(new Array(41).fill('1').join(''), 1337);
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('a maximum length of 40 characters');
+          return Promise.resolve();
+        }
+      });
+
+      it('errors if attribute value is greater than 100 characters', async function () {
+        try {
+          const { getPerformance, trace } = perfModular;
+          const perf = getPerformance();
+          const traceInvertase = trace(perf, 'invertase');
+          traceInvertase.putAttribute('invertase', new Array(101).fill('1').join(''));
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('a maximum length of 100 characters');
+          return Promise.resolve();
+        }
+      });
+
+      it('errors if more than 5 attributes are put', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.putAttribute('invertase1', '1337');
+        traceInvertase.putAttribute('invertase2', '1337');
+        traceInvertase.putAttribute('invertase3', '1337');
+        traceInvertase.putAttribute('invertase4', '1337');
+        traceInvertase.putAttribute('invertase5', '1337');
+        try {
+          traceInvertase.putAttribute('invertase6', '1337');
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('maximum number of attributes');
+          return Promise.resolve();
+        }
+      });
+    });
+    // it('getAttributes()', function () {
+    //   const trace = firebase.perf().newTrace('invertase');
+    //   trace.putAttribute('inver', 'tase');
+    //   trace.putAttribute('tase', 'baz');
+    //   const value = trace.getAttributes();
+    //   JSON.parse(JSON.stringify(value)).should.deepEqual({
+    //     inver: 'tase',
+    //     tase: 'baz',
+    //   });
+    // });
+
+    describe('removeMetric()', function () {
+      it('errors if name not a string', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        try {
+          traceInvertase.putMetric('likes', 1337);
+          traceInvertase.removeMetric(13377331);
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('must be a string');
+          return Promise.resolve();
+        }
+      });
+
+      it('removes a metric', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.putMetric('likes', 1337);
+        const value = traceInvertase.getMetric('likes');
+        should.equal(value, 1337);
+        traceInvertase.removeMetric('likes');
+        const value2 = traceInvertase.getMetric('likes');
+        should.equal(value2, 0);
+      });
+    });
+
+    describe('getMetric()', function () {
+      it('should return 0 if metric does not exist', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        const value = traceInvertase.getMetric('likes');
+        should.equal(value, 0);
+      });
+
+      it('should return an metric number value', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.putMetric('likes', 7331);
+        const value = traceInvertase.getMetric('likes');
+        should.equal(value, 7331);
+      });
+
+      it('errors if metric name is not a string', async function () {
+        try {
+          const { getPerformance, trace } = perfModular;
+          const perf = getPerformance();
+          const traceInvertase = trace(perf, 'invertase');
+          traceInvertase.getMetric(1337);
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('must be a string');
+          return Promise.resolve();
+        }
+      });
+    });
+
+    describe('putMetric()', function () {
+      it('sets a metric number value', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.putMetric('likes', 9001);
+        const value = traceInvertase.getMetric('likes');
+        value.should.equal(9001);
+      });
+
+      it('overwrites existing metric if it exists', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.putMetric('likes', 1);
+        traceInvertase.incrementMetric('likes', 9000);
+        const value = traceInvertase.getMetric('likes');
+        value.should.equal(9001);
+        traceInvertase.putMetric('likes', 1);
+        const value2 = traceInvertase.getMetric('likes');
+        value2.should.equal(1);
+      });
+
+      it('errors if metric name is not a string', async function () {
+        try {
+          const { getPerformance, trace } = perfModular;
+          const perf = getPerformance();
+          const traceInvertase = trace(perf, 'invertase');
+          traceInvertase.putMetric(1337, 7331);
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('must be a string');
+          return Promise.resolve();
+        }
+      });
+
+      it('errors if metric value is not a number', async function () {
+        try {
+          const { getPerformance, trace } = perfModular;
+          const perf = getPerformance();
+          const traceInvertase = trace(perf, 'invertase');
+          traceInvertase.putMetric('likes', '1337');
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('must be a number');
+          return Promise.resolve();
+        }
+      });
+    });
+
+    describe('incrementMetric()', function () {
+      it('increments a metric number value', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.putMetric('likes', 9000);
+        traceInvertase.incrementMetric('likes', 1);
+        const value = traceInvertase.getMetric('likes');
+        value.should.equal(9001);
+      });
+
+      it('increments a metric even if it does not already exist', async function () {
+        const { getPerformance, trace } = perfModular;
+        const perf = getPerformance();
+        const traceInvertase = trace(perf, 'invertase');
+        traceInvertase.incrementMetric('likes', 9001);
+        const value = traceInvertase.getMetric('likes');
+        value.should.equal(9001);
+      });
+
+      it('errors if metric name is not a string', async function () {
+        try {
+          const { getPerformance, trace } = perfModular;
+          const perf = getPerformance();
+          const traceInvertase = trace(perf, 'invertase');
+          traceInvertase.incrementMetric(1337, 1);
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('must be a string');
+          return Promise.resolve();
+        }
+      });
+
+      it('errors if incrementBy value is not a number', async function () {
+        try {
+          const { getPerformance, trace } = perfModular;
+          const perf = getPerformance();
+          const traceInvertase = trace(perf, 'invertase');
+          traceInvertase.incrementMetric('likes', '1');
+          return Promise.reject(new Error('Did not throw'));
+        } catch (e) {
+          e.message.should.containEql('must be a number');
+          return Promise.resolve();
+        }
+      });
+    });
+
+    it('getMetrics()', async function () {
+      const { getPerformance, trace } = perfModular;
+      const perf = getPerformance();
+      const traceInvertase = trace(perf, 'invertase');
+      traceInvertase.putMetric('likes', 1337);
+      traceInvertase.putMetric('stars', 6832);
+      const value = traceInvertase.getMetrics();
+      JSON.parse(JSON.stringify(value)).should.deepEqual({
+        likes: 1337,
+        stars: 6832,
+      });
+    });
+  });
+});

@@ -1,0 +1,592 @@
+/**
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import Foundation
+import FirebaseFirestore
+
+final class RNFBFirestorePipelineBridgeFactory {
+  private let nodeBuilder = RNFBFirestorePipelineNodeBuilder()
+
+  private final class StageBridgeBox {
+    var stages: [__StageBridge]?
+  }
+
+  private enum PendingStageBridge {
+    case ready(__StageBridge)
+    case union(StageBridgeBox)
+  }
+
+  private enum StageBridgeFrame {
+    case enter(
+      request: RNFBFirestoreParsedPipelineRequest,
+      box: StageBridgeBox
+    )
+    case exit(
+      sourceStages: [__StageBridge],
+      pendingStages: [PendingStageBridge],
+      box: StageBridgeBox
+    )
+  }
+
+  private final class QuerySourceValueBox {
+    var value: Any?
+  }
+
+  private enum QuerySourceBuildFrame {
+    case value(
+      RNFBFirestoreParsedValueNode,
+      QuerySourceValueBox
+    )
+    case valueListExit(
+      QuerySourceValueBox,
+      [QuerySourceValueBox]
+    )
+    case valueMapExit(
+      QuerySourceValueBox,
+      [(String, QuerySourceValueBox)]
+    )
+    case expression(
+      RNFBFirestoreParsedExpressionNode,
+      QuerySourceValueBox
+    )
+    case expressionConstantExit(
+      QuerySourceValueBox,
+      QuerySourceValueBox
+    )
+    case expressionFunctionExit(
+      String,
+      QuerySourceValueBox,
+      [QuerySourceValueBox]
+    )
+  }
+
+  func buildStageBridges(
+    firestore: Firestore,
+    request: RNFBFirestoreParsedPipelineRequest
+  ) throws -> [__StageBridge] {
+    nodeBuilder.currentFirestore = firestore
+    nodeBuilder.buildNestedPipelineSubquery = { [self] nestedFirestore, pipelineMap, scalar in
+      RNFBFirestorePipelineDebug.log(
+        "buildNestedPipelineSubquery scalar=\(scalar) source=\((pipelineMap["source"] as? [String: Any])?["source"] as? String ?? "nil") stages=\((pipelineMap["stages"] as? [Any])?.count ?? 0)"
+      )
+      let nestedRequest = try RNFBFirestorePipelineParser.parsePipelineMap(pipelineMap)
+      let nestedStages = try self.buildStageBridges(firestore: nestedFirestore, request: nestedRequest)
+      RNFBFirestorePipelineDebug.log(
+        "buildNestedPipelineSubquery built \(nestedStages.count) stage bridge(s) kind=\(scalar ? "scalar" : "array")"
+      )
+      // Mirror the Firebase Swift SDK: `toScalarExpression()`/`toArrayExpression()` wrap the
+      // pipeline's stage bridges in a `__PipelineExprBridge` then a `scalar`/`array` function bridge.
+      let pipelineExprBridge = __PipelineExprBridge(stages: nestedStages)
+      return __FunctionExprBridge(name: scalar ? "scalar" : "array", args: [pipelineExprBridge])
+    }
+
+    let rootBox = StageBridgeBox()
+    var stack: [StageBridgeFrame] = [
+      .enter(request: request, box: rootBox),
+    ]
+
+    while let frame = stack.popLast() {
+      switch frame {
+      case let .enter(request, box):
+        let sourceStages = try buildSourceStageBridges(firestore: firestore, source: request.source)
+        var pendingStages: [PendingStageBridge] = []
+        var nestedRequests: [(RNFBFirestoreParsedPipelineRequest, StageBridgeBox)] = []
+        pendingStages.reserveCapacity(request.stages.count)
+
+        for stage in request.stages {
+          if case let .unionStage(parsed) = stage {
+            let childBox = StageBridgeBox()
+            pendingStages.append(.union(childBox))
+            nestedRequests.append((parsed.other, childBox))
+          } else {
+            pendingStages.append(.ready(try buildStageBridge(stage, firestore: firestore)))
+          }
+        }
+
+        stack.append(.exit(
+          sourceStages: sourceStages,
+          pendingStages: pendingStages,
+          box: box
+        ))
+
+        for (nestedRequest, childBox) in nestedRequests.reversed() {
+          stack.append(.enter(request: nestedRequest, box: childBox))
+        }
+      case let .exit(sourceStages, pendingStages, box):
+        var stageBridges = sourceStages
+        for pendingStage in pendingStages {
+          switch pendingStage {
+          case let .ready(stageBridge):
+            stageBridges.append(stageBridge)
+          case let .union(childBox):
+            guard let childStages = childBox.stages else {
+              throw PipelineValidationError("pipelineExecute() failed to build nested union pipeline.")
+            }
+            stageBridges.append(__UnionStageBridge(other: __PipelineBridge(stages: childStages, db: firestore)))
+          }
+        }
+
+        box.stages = stageBridges
+      }
+    }
+
+    guard let stageBridges = rootBox.stages else {
+      throw PipelineValidationError("pipelineExecute() failed to build pipeline stages.")
+    }
+
+    return stageBridges
+  }
+
+  private func buildSourceStageBridges(
+    firestore: Firestore,
+    source: RNFBFirestoreParsedPipelineSource
+  ) throws -> [__StageBridge] {
+    let sourceType = source.sourceType
+
+    switch sourceType {
+    case "collection":
+      guard let path = source.path else {
+        throw PipelineValidationError("pipelineExecute() expected pipeline.source.path to be a non-empty string.")
+      }
+      return [__CollectionSourceStageBridge(ref: firestore.collection(path), firestore: firestore, forceIndex: nil)]
+    case "collectionGroup":
+      guard let collectionId = source.collectionId else {
+        throw PipelineValidationError(
+          "pipelineExecute() expected pipeline.source.collectionId to be a non-empty string.")
+      }
+      return [__CollectionGroupSourceStageBridge(collectionId: collectionId, forceIndex: nil)]
+    case "database":
+      return [__DatabaseSourceStageBridge()]
+    case "documents":
+      guard !source.documents.isEmpty else {
+        throw PipelineValidationError(
+          "pipelineExecute() expected pipeline.source.documents to contain at least one document path.")
+      }
+      let refs = source.documents.map { firestore.document($0) }
+      return [__DocumentsSourceStageBridge(documents: refs, firestore: firestore)]
+    case "query":
+      guard let path = source.path else {
+        throw PipelineValidationError("pipelineExecute() expected pipeline.source.path to be a non-empty string.")
+      }
+      guard let queryType = source.queryType else {
+        throw PipelineValidationError("pipelineExecute() expected pipeline.source.queryType to be a non-empty string.")
+      }
+      guard let querySource = source.query else {
+        throw PipelineValidationError("pipelineExecute() expected query source payload to be provided.")
+      }
+
+      let baseQuery = RNFBFirestoreCommon.getQueryFor(firestore, path: path, type: queryType)
+      let query = RNFBFirestoreQuery(
+        modifiers: firestore,
+        query: baseQuery,
+        filters: buildQuerySourceArray(querySource.filters),
+        orders: buildQuerySourceArray(querySource.orders),
+        options: buildQuerySourceMap(querySource.options)
+      ).instance()
+
+      guard let query else {
+        throw PipelineValidationError("pipelineExecute() expected query source to be a valid query.")
+      }
+
+      return __PipelineBridge.createStageBridges(from: query)
+    case "subcollection":
+      guard let path = source.path else {
+        throw PipelineValidationError("pipelineExecute() expected pipeline.source.path to be a non-empty string.")
+      }
+      return [__SubcollectionSourceStageBridge(path: path)]
+    default:
+      throw PipelineValidationError("pipelineExecute() received an unknown source type.")
+    }
+  }
+
+  private func buildStageBridge(
+    _ stage: RNFBFirestoreParsedPipelineStage,
+    firestore: Firestore
+  ) throws -> __StageBridge {
+    switch stage {
+    case let .whereStage(parsed):
+      return __WhereStageBridge(
+        expr: try nodeBuilder.coerceBooleanExpression(parsed.condition, fieldName: "stage.options.condition"))
+    case let .selectStage(parsed):
+      return __SelectStageBridge(
+        selections: try nodeBuilder.coerceNamedSelectables(parsed.selections, fieldName: "stage.options.selections"))
+    case let .addFieldsStage(parsed):
+      return __AddFieldsStageBridge(
+        fields: try nodeBuilder.coerceNamedSelectables(parsed.fields, fieldName: "stage.options.fields"))
+    case let .removeFieldsStage(parsed):
+      return __RemoveFieldsStageBridge(
+        fields: parsed.fields)
+    case let .sortStage(parsed):
+      return __SortStageBridge(
+        orderings: try nodeBuilder.coerceOrderings(parsed.orderings, fieldName: "stage.options.orderings"))
+    case let .limitStage(parsed):
+      return __LimitStageBridge(limit: try nodeBuilder.coerceInt(parsed.limit, fieldName: "stage.options.limit"))
+    case let .offsetStage(parsed):
+      return __OffsetStageBridge(offset: try nodeBuilder.coerceInt(parsed.offset, fieldName: "stage.options.offset"))
+    case let .aggregateStage(parsed):
+      return try buildAggregateStage(parsed)
+    case let .distinctStage(parsed):
+      return __DistinctStageBridge(
+        groups: try nodeBuilder.coerceNamedSelectables(parsed.groups, fieldName: "stage.options.groups"))
+    case let .findNearestStage(parsed):
+      return try buildFindNearestStage(parsed)
+    case let .searchStage(parsed):
+      return try buildSearchStage(parsed)
+    case let .defineStage(parsed):
+      return try buildDefineStage(parsed)
+    case let .replaceWithStage(parsed):
+      return __ReplaceWithStageBridge(expr: try nodeBuilder.coerceExpression(parsed.value, fieldName: "stage.options.map"))
+    case let .sampleStage(parsed):
+      if let documents = parsed.documents {
+        return __SampleStageBridge(count: Int64(try nodeBuilder.coerceInt(documents, fieldName: "stage.options.documents")))
+      }
+      if let percentage = parsed.percentage {
+        return __SampleStageBridge(percentage: try coerceNumber(percentage, fieldName: "stage.options.percentage"))
+      }
+      throw PipelineValidationError("pipelineExecute() expected sample stage to include documents or percentage.")
+    case .unionStage:
+      throw PipelineValidationError("pipelineExecute() failed to build nested union pipeline.")
+    case let .unnestStage(parsed):
+      let expression = try nodeBuilder.coerceExpression(parsed.selectable.expression, fieldName: "stage.options.selectable")
+      let alias = nodeBuilder.coerceAlias(from: parsed.selectable) ?? "_unnest"
+      let indexExpr: __ExprBridge?
+      if let indexField = parsed.indexField {
+        let indexFieldName = try nodeBuilder.coerceStageOptionFieldName(
+          indexField,
+          fieldName: "stage.options.indexField"
+        )
+        indexExpr = indexFieldName.isEmpty ? nil : __FieldBridge(name: indexFieldName)
+      } else {
+        indexExpr = nil
+      }
+      return __UnnestStageBridge(field: expression, alias: __FieldBridge(name: alias), indexField: indexExpr)
+    case let .rawStage(parsed):
+      return __RawStageBridge(
+        name: parsed.name,
+        params: try nodeBuilder.coerceRawParams(parsed.params, fieldName: "stage.options.params"),
+        options: try nodeBuilder.coerceRawOptions(parsed.options, fieldName: "stage.options.options")
+      )
+    }
+  }
+
+  private func buildAggregateStage(_ stage: RNFBFirestoreParsedAggregateStage) throws -> __StageBridge {
+    var accumulators: [String: __AggregateFunctionBridge] = [:]
+    for (index, accumulator) in stage.accumulators.enumerated() {
+      let aggregate = try nodeBuilder.coerceAliasedAggregate(
+        accumulator,
+        fieldName: "stage.options.accumulators[\(index)]"
+      )
+      accumulators[aggregate.alias] = aggregate.function
+    }
+
+    let groups = stage.groups.isEmpty
+      ? [:]
+      : try nodeBuilder.coerceNamedSelectables(stage.groups, fieldName: "stage.options.groups")
+
+    return __AggregateStageBridge(accumulators: accumulators, groups: groups)
+  }
+
+  private func buildFindNearestStage(_ stage: RNFBFirestoreParsedFindNearestStage) throws -> __StageBridge {
+    let fieldPath = try nodeBuilder.coerceFieldPath(stage.field, fieldName: "stage.options.field")
+    let vector = try nodeBuilder.coerceVector(stage.vectorValue, fieldName: "findNearest.vectorValue")
+    let distanceMeasure = try normalizeDistanceMeasure(
+      stage.distanceMeasure,
+      fieldName: "stage.options.distanceMeasure"
+    )
+    let distanceFieldExpr: __ExprBridge?
+    if let distanceField = stage.distanceField {
+      let expression = try nodeBuilder.coerceExpression(
+        distanceField,
+        fieldName: "stage.options.distanceField"
+      )
+      if expression is __FieldBridge {
+        distanceFieldExpr = expression
+      } else {
+        let fieldName = try nodeBuilder.coerceStageOptionFieldName(
+          distanceField,
+          fieldName: "stage.options.distanceField"
+        )
+        distanceFieldExpr = __FieldBridge(name: fieldName)
+      }
+    } else {
+      distanceFieldExpr = nil
+    }
+    let limitNumber: NSNumber?
+    if let limit = stage.limit {
+      limitNumber = NSNumber(value: try nodeBuilder.coerceInt(limit, fieldName: "stage.options.limit"))
+    } else {
+      limitNumber = nil
+    }
+
+    return __FindNearestStageBridge(
+      field: __FieldBridge(name: fieldPath),
+      vectorValue: VectorValue(__array: vector.map { NSNumber(value: $0) }),
+      distanceMeasure: distanceMeasure,
+      limit: limitNumber,
+      distanceField: distanceFieldExpr
+    )
+  }
+
+  private func buildSearchStage(_ stage: RNFBFirestoreParsedSearchStage) throws -> __StageBridge {
+    // Mirror FirebaseFirestore Search stage construction (Stages.swift): option values are
+    // Sendable literals or Expression values converted through Constant/Expression.toBridge().
+    var options: [String: __ExprBridge] = [:]
+    options["query"] = try buildSearchQueryBridge(from: stage.query)
+
+    if let languageCode = stage.languageCode {
+      options["language_code"] = __ConstantBridge(languageCode)
+    }
+    if let retrievalDepth = stage.retrievalDepth {
+      options["retrieval_depth"] = __ConstantBridge(retrievalDepth.intValue)
+    }
+    if let offset = stage.offset {
+      options["offset"] = __ConstantBridge(offset.intValue)
+    }
+    if let limit = stage.limit {
+      options["limit"] = __ConstantBridge(limit.intValue)
+    }
+
+    var sortBridge: [__OrderingBridge] = []
+    if !stage.sort.isEmpty {
+      sortBridge = try stage.sort.enumerated().map { index, ordering in
+        try buildSearchOrderingBridge(ordering, fieldName: "stage.options.sort[\(index)]")
+      }
+    }
+
+    var addFields: [String: __ExprBridge] = [:]
+    if !stage.addFields.isEmpty {
+      addFields = try buildSearchAddFields(from: stage.addFields)
+    }
+
+    return __SearchStageBridge(
+      options: options,
+      addFields: addFields,
+      select: [:],
+      sort: sortBridge
+    )
+  }
+
+  private func buildSearchQueryBridge(from expression: RNFBFirestoreParsedExpressionNode) throws -> __ExprBridge {
+    if case let .function(name, args) = expression,
+       normalizePipelineFunctionName(name) == "documentmatches",
+       args.count == 1 {
+      if let query = try searchDocumentMatchesQueryString(from: args[0]) {
+        return DocumentMatches(query).bridge
+      }
+
+      let queryArg = try nodeBuilder.coerceExpression(
+        args[0],
+        fieldName: "stage.options.query.args[0]"
+      )
+      return __FunctionExprBridge(name: "document_matches", args: [queryArg])
+    }
+
+    return try nodeBuilder.coerceBooleanExpression(expression, fieldName: "stage.options.query")
+  }
+
+  private func searchDocumentMatchesQueryString(
+    from value: RNFBFirestoreParsedValueNode
+  ) throws -> String? {
+    switch value {
+    case let .primitive(stringValue as String):
+      return stringValue
+    case let .expression(.constant(constantValue)):
+      if case let .primitive(stringValue as String) = constantValue {
+        return stringValue
+      }
+      return nil
+    default:
+      return nil
+    }
+  }
+
+  private func buildSearchOrderingBridge(
+    _ ordering: RNFBFirestoreParsedOrderingNode,
+    fieldName: String
+  ) throws -> __OrderingBridge {
+    if case let .function(name, args) = ordering.expression,
+       normalizePipelineFunctionName(name) == "score",
+       args.isEmpty {
+      return __OrderingBridge(
+        expr: Score().bridge,
+        direction: ordering.descending ? "descending" : "ascending"
+      )
+    }
+
+    return try nodeBuilder.coerceOrdering(ordering, fieldName: fieldName)
+  }
+
+  private func buildSearchAddFields(
+    from selectables: [RNFBFirestoreParsedSelectableNode]
+  ) throws -> [String: __ExprBridge] {
+    var output: [String: __ExprBridge] = [:]
+
+    for (index, selectable) in selectables.enumerated() {
+      guard let alias = selectable.alias, !alias.isEmpty else {
+        throw PipelineValidationError(
+          "pipelineExecute() expected stage.options.addFields[\(index)] to include an alias."
+        )
+      }
+
+      if case let .function(name, args) = selectable.expression,
+         normalizePipelineFunctionName(name) == "score",
+         args.isEmpty {
+        output[alias] = Score().bridge
+        continue
+      }
+
+      output[alias] = try nodeBuilder.coerceExpression(
+        selectable.expression,
+        fieldName: "stage.options.addFields[\(index)].expr"
+      )
+    }
+
+    return output
+  }
+
+  private func normalizePipelineFunctionName(_ name: String) -> String {
+    name.lowercased()
+      .replacingOccurrences(of: "_", with: "")
+      .replacingOccurrences(of: "-", with: "")
+  }
+
+  private func buildDefineStage(_ stage: RNFBFirestoreParsedDefineStage) throws -> __StageBridge {
+    let variables = try nodeBuilder.coerceNamedSelectables(
+      stage.variables,
+      fieldName: "stage.options.variables"
+    )
+    return __DefineStageBridge(variables: variables)
+  }
+
+  private func normalizeDistanceMeasure(_ value: String, fieldName: String) throws -> String {
+    let normalized = value
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "-", with: "_")
+      .replacingOccurrences(of: " ", with: "_")
+      .uppercased()
+    switch normalized {
+    case "COSINE":
+      return "COSINE"
+    case "EUCLIDEAN":
+      return "EUCLIDEAN"
+    case "DOT_PRODUCT", "DOTPRODUCT":
+      return "DOT_PRODUCT"
+    default:
+      throw PipelineValidationError(
+        "pipelineExecute() expected \(fieldName) to be one of COSINE, EUCLIDEAN, DOT_PRODUCT."
+      )
+    }
+  }
+
+  private func coerceNumber(_ value: Any, fieldName: String) throws -> Double {
+    if let number = value as? NSNumber {
+      return number.doubleValue
+    }
+    throw PipelineValidationError("pipelineExecute() expected \(fieldName) to be a number.")
+  }
+
+  private func buildQuerySourceArray(_ values: [RNFBFirestoreParsedValueNode]) -> [Any] {
+    values.map(buildQuerySourceValue)
+  }
+
+  private func buildQuerySourceMap(_ values: [String: RNFBFirestoreParsedValueNode]) -> [String: Any] {
+    values.reduce(into: [String: Any]()) { result, entry in
+      result[entry.key] = buildQuerySourceValue(entry.value)
+    }
+  }
+
+  private func buildQuerySourceValue(_ value: RNFBFirestoreParsedValueNode) -> Any {
+    let rootBox = QuerySourceValueBox()
+    var stack: [QuerySourceBuildFrame] = [
+      .value(value, rootBox),
+    ]
+
+    while let frame = stack.popLast() {
+      switch frame {
+      case let .value(value, box):
+        switch value {
+        case let .primitive(primitive):
+          box.value = primitive
+        case let .list(values):
+          let childBoxes = values.map { _ in QuerySourceValueBox() }
+          stack.append(.valueListExit(box, childBoxes))
+          for index in values.indices.reversed() {
+            stack.append(.value(values[index], childBoxes[index]))
+          }
+        case let .map(values):
+          let entries = values.map { (key: $0.key, box: QuerySourceValueBox(), value: $0.value) }
+          stack.append(.valueMapExit(box, entries.map { ($0.key, $0.box) }))
+          for entry in entries.reversed() {
+            stack.append(.value(entry.value, entry.box))
+          }
+        case let .expression(expression):
+          stack.append(.expression(expression, box))
+        }
+      case let .valueListExit(box, childBoxes):
+        box.value = childBoxes.map { $0.value as Any }
+      case let .valueMapExit(box, entries):
+        var output: [String: Any] = [:]
+        for (key, childBox) in entries {
+          output[key] = childBox.value
+        }
+        box.value = output
+      case let .expression(expression, box):
+        switch expression {
+        case let .field(path):
+          box.value = [
+            "__kind": "expression",
+            "exprType": "Field",
+            "path": path,
+          ]
+        case let .constant(value):
+          let childBox = QuerySourceValueBox()
+          stack.append(.expressionConstantExit(box, childBox))
+          stack.append(.value(value, childBox))
+        case let .variable(name):
+          box.value = [
+            "__kind": "expression",
+            "exprType": "Variable",
+            "name": name,
+          ]
+        case let .function(name, args):
+          let childBoxes = args.map { _ in QuerySourceValueBox() }
+          stack.append(.expressionFunctionExit(name, box, childBoxes))
+          for index in args.indices.reversed() {
+            stack.append(.value(args[index], childBoxes[index]))
+          }
+        }
+      case let .expressionConstantExit(box, childBox):
+        box.value = [
+          "__kind": "expression",
+          "exprType": "Constant",
+          "value": childBox.value as Any,
+        ]
+      case let .expressionFunctionExit(name, box, childBoxes):
+        box.value = [
+          "__kind": "expression",
+          "exprType": "Function",
+          "name": name,
+          "args": childBoxes.map { $0.value as Any },
+        ]
+      }
+    }
+
+    guard let value = rootBox.value else {
+      return NSNull()
+    }
+    return value
+  }
+}

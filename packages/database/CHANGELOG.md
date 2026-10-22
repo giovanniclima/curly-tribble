@@ -1,0 +1,1223 @@
+# Change Log
+
+All notable changes to this project will be documented in this file.
+See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
+
+## [27.0.0](https://github.com/invertase/react-native-firebase/compare/v26.4.0...v27.0.0) (2026-10-19)
+
+### ⚠ BREAKING CHANGES
+
+- **app, sdk:** bump Firebase Android 35, Apple 13, and JS 13
+
+### Features
+
+- **app, sdk:** bump Firebase Android 35, Apple 13, and JS 13 ([0ca03d1](https://github.com/invertase/react-native-firebase/commit/0ca03d11b0c271fb37cfbee8a0c3074a21969f0b))
+- **database:** get() uses the native one-shot read on Android and web ([65cf63c](https://github.com/invertase/react-native-firebase/commit/65cf63c963b3914a4aa0e450caefae7a621d383b)), closes [firebase-ios-sdk#12168](https://github.com/invertase/firebase-ios-sdk/issues/12168)
+
+### Bug Fixes
+
+- **app,database:** resolve platform native module when bundlers apply package exports ([959d91f](https://github.com/invertase/react-native-firebase/commit/959d91fc79d7155d1d9a08e1f836789e6e6d6156))
+- **database, android:** settle keepSynced promise after SDK apply ([61100f2](https://github.com/invertase/react-native-firebase/commit/61100f27700eda0b5f69ec21ebd991ca97ce316d))
+- **database, android:** surface onDisconnect errors; cover deny reject arms ([1a4a4d6](https://github.com/invertase/react-native-firebase/commit/1a4a4d63e5f41042d9ddba55375b6a758f9829d5))
+- **database:** decode iOS null sentinels before writes ([501bec8](https://github.com/invertase/react-native-firebase/commit/501bec812fab11614cae0622a93b6d16687819dd))
+- **database:** keep get() from cancelling any keepSynced at the location on Android ([befb08c](https://github.com/invertase/react-native-firebase/commit/befb08c2f225ea65031ffa71ad173a68cf411dfd)), closes [firebase-android-sdk#8433](https://github.com/invertase/firebase-android-sdk/issues/8433)
+- **database:** only fall back to once() for locations kept synced ([6a7eddb](https://github.com/invertase/react-native-firebase/commit/6a7eddb837f6c003eaa6f6da8697e4b402da4861))
+- **database:** skip once retry after observer-shaped get errors ([6e18ddf](https://github.com/invertase/react-native-firebase/commit/6e18ddffa2f74445b843dc0d992b41232254ccb3))
+
+## [26.4.0](https://github.com/invertase/react-native-firebase/compare/v26.3.3...v26.4.0) (2026-09-05)
+
+### Bug Fixes
+
+- **database:** use RNFBHandleMap for transaction and query maps ([8adba4c](https://github.com/invertase/react-native-firebase/commit/8adba4cb88dffec2442ea0fe37738d1080d0a185))
+
+## [26.3.3](https://github.com/invertase/react-native-firebase/compare/v26.3.2...v26.3.3) (2026-09-01)
+
+### Reverts
+
+- Revert "chore(release): release packages" ([0a85268](https://github.com/invertase/react-native-firebase/commit/0a85268ae21c706cf1392eaa5b088e85c3273cb7))
+
+## [26.3.2](https://github.com/invertase/react-native-firebase/compare/v26.3.1...v26.3.2) (2026-08-21)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [26.3.1](https://github.com/invertase/react-native-firebase/compare/v26.3.0...v26.3.1) (2026-08-20)
+
+### Bug Fixes
+
+- restore tokenless npm OIDC publishing ([f601644](https://github.com/invertase/react-native-firebase/commit/f60164462f6de612b20192dde4b154e1c1d6afc7))
+
+## [26.3.0](https://github.com/invertase/react-native-firebase/compare/v26.2.0...v26.3.0) (2026-08-20)
+
+### Bug Fixes
+
+- **ios:** allow non-modular React includes in RNFB podspecs ([#9200](https://github.com/invertase/react-native-firebase/issues/9200)) ([dd453ff](https://github.com/invertase/react-native-firebase/commit/dd453ff17a8bd645b9d0eb56bef74df53f217f93))
+
+## [26.2.0](https://github.com/invertase/react-native-firebase/compare/v26.1.0...v26.2.0) (2026-08-10)
+
+### Bug Fixes
+
+- codegen should be wipe-then-regen ([04bc4e4](https://github.com/invertase/react-native-firebase/commit/04bc4e4cdab9870cb366fd212b2ccb331b0289d6))
+
+## [26.1.0](https://github.com/invertase/react-native-firebase/compare/v26.0.0...v26.1.0) (2026-08-03)
+
+### Features
+
+- **ios:** add SPM dependency resolution support alongside CocoaPods ([#8933](https://github.com/invertase/react-native-firebase/issues/8933)) ([44a7a9a](https://github.com/invertase/react-native-firebase/commit/44a7a9ae7b404f412e9766c0417f1df8fa971a0b))
+
+## [26.0.0](https://github.com/invertase/react-native-firebase/compare/v25.1.0...v26.0.0) (2026-07-29)
+
+### ⚠ BREAKING CHANGES
+
+- **database:** migrate database to TurboModules
+
+### Features
+
+- **database:** migrate database to TurboModules ([27ad35c](https://github.com/invertase/react-native-firebase/commit/27ad35cee5d8b13514c6432226b087266efc0012))
+
+### Bug Fixes
+
+- **database:** align public types with firebase-js-sdk declarations ([7bc2d90](https://github.com/invertase/react-native-firebase/commit/7bc2d9079a5628a0448262af5df10bfa2e5de60c))
+- **ios:** set IPHONEOS_DEPLOYMENT_TARGET to 15.0, update platform support docs/conditionals ([#9108](https://github.com/invertase/react-native-firebase/issues/9108)) ([99d0899](https://github.com/invertase/react-native-firebase/commit/99d089908e3eec6155d73ecf05ff7274ad33c46e)), closes [#8882](https://github.com/invertase/react-native-firebase/issues/8882)
+
+## [25.1.0](https://github.com/invertase/react-native-firebase/compare/v25.0.1...v25.1.0) (2026-06-25)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [25.0.1](https://github.com/invertase/react-native-firebase/compare/v25.0.0...v25.0.1) (2026-06-23)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [25.0.0](https://github.com/invertase/react-native-firebase/compare/v24.0.0...v25.0.0) (2026-06-23)
+
+### ⚠ BREAKING CHANGES
+
+- **auth:** migrate to TypeScript and bring auth closer in alignment with firebase-js-sdk API (#8991)
+- **database:** database types now match firebase-js-sdk as closely as possible
+
+Please see https://rnfirebase.io/migrating-to-v25 for help migrating if needed
+
+react-native-firebase has a goal to be a drop-in replacement for firebase-js-sdk, with native extensions and performance. It has always worked that way at the javascript level but the typescript types have been divergent
+
+We are fixing that as we refactor to typescript. Please bear with us as we get closer to our goal of react-native-firebase matching firebase-js-sdk both in functionality where possible, but also in exact typescript typing.
+
+Specifics for Database:
+
+- removed the modular ServerValue named export from @react-native-firebase/database; consumers must use serverTimestamp() / increment() instead.
+- changed modular goOffline(db) and goOnline(db) so they no longer return a chainable value, which breaks consumer code that awaits them or calls .then(...) on them.
+- aligned the modular TypeScript surface with the firebase-js-sdk, so modular types like DatabaseReference, Query, DataSnapshot, OnDisconnect, and QueryConstraint no longer expose the older namespaced instance-style API in their public typings; TypeScript consumers will need to switch to the function-based modular helpers.
+- corrected getServerTime(db) to a synchronous Date return in the modular type surface, so TypeScript consumers that previously treated it as promise-like will need to update their code.
+- **storage:** migrate to TypeScript and match firebase-js-sdk API (#8824)
+
+### Bug Fixes
+
+- **android:** catch RejectedExecutionException on executor-backed Tasks ([d70520d](https://github.com/invertase/react-native-firebase/commit/d70520d39c16c6a414affe4585de6f65ec9ab345))
+- **database, android:** remove RTDB listeners before shutting down executors ([f527153](https://github.com/invertase/react-native-firebase/commit/f527153548c8f6f97c553f7348f798bb1ce08b08))
+
+### Code Refactoring
+
+- **auth:** migrate to TypeScript and bring auth closer in alignment with firebase-js-sdk API ([#8991](https://github.com/invertase/react-native-firebase/issues/8991)) ([7cf7c1a](https://github.com/invertase/react-native-firebase/commit/7cf7c1ac0d31d09ade581deb027d4ed8126bb7cf))
+- **database:** migrate to TypeScript ([#8977](https://github.com/invertase/react-native-firebase/issues/8977)) ([fc8b839](https://github.com/invertase/react-native-firebase/commit/fc8b839b8e315a0cb8f74bc9b13720109315dd11))
+- **storage:** migrate to TypeScript and match firebase-js-sdk API ([#8824](https://github.com/invertase/react-native-firebase/issues/8824)) ([663b57c](https://github.com/invertase/react-native-firebase/commit/663b57c220ef733affc1055e674334f35c458861))
+
+## [24.1.1](https://github.com/invertase/react-native-firebase/compare/v24.1.0...v24.1.1) (2026-06-10)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [24.1.0](https://github.com/invertase/react-native-firebase/compare/v24.0.0...v24.1.0) (2026-06-05)
+
+### Bug Fixes
+
+- **android:** catch RejectedExecutionException on executor-backed Tasks ([375ade9](https://github.com/invertase/react-native-firebase/commit/375ade9a043d2fd8180572ecc75c518e4428be84))
+- **database, android:** remove RTDB listeners before shutting down executors ([25ed605](https://github.com/invertase/react-native-firebase/commit/25ed605cdb5b639f70ad7e96923d4a9acc2ff0d0))
+
+## [24.0.0](https://github.com/invertase/react-native-firebase/compare/v23.8.6...v24.0.0) (2026-04-01)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.8.8](https://github.com/invertase/react-native-firebase/compare/v23.8.6...v23.8.8) (2026-03-12)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.8.7](https://github.com/invertase/react-native-firebase/compare/v23.8.6...v23.8.7) (2026-03-12)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.8.6](https://github.com/invertase/react-native-firebase/compare/v23.8.5...v23.8.6) (2026-02-03)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.8.5](https://github.com/invertase/react-native-firebase/compare/v23.8.4...v23.8.5) (2026-01-31)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.8.4](https://github.com/invertase/react-native-firebase/compare/v23.8.3...v23.8.4) (2026-01-24)
+
+### Bug Fixes
+
+- internal cross-module references to transpiled code must be dist not src ([b03db0a](https://github.com/invertase/react-native-firebase/commit/b03db0aa3fb748ee039826ccd9c7e73bc3c78f6f))
+
+## [23.8.3](https://github.com/invertase/react-native-firebase/compare/v23.8.2...v23.8.3) (2026-01-16)
+
+### Bug Fixes
+
+- **ios:** use react-native podspec module infra for deps ([c66eb63](https://github.com/invertase/react-native-firebase/commit/c66eb63f60cfbabdeb73a3bb1eff8735f11ad391))
+
+## [23.8.2](https://github.com/invertase/react-native-firebase/compare/v23.8.1...v23.8.2) (2026-01-14)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.8.1](https://github.com/invertase/react-native-firebase/compare/v23.8.0...v23.8.1) (2026-01-13)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.8.0](https://github.com/invertase/react-native-firebase/compare/v23.7.0...v23.8.0) (2026-01-13)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.7.0](https://github.com/invertase/react-native-firebase/compare/v23.6.0...v23.7.0) (2025-12-08)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.6.0](https://github.com/invertase/react-native-firebase/compare/v23.5.0...v23.6.0) (2025-12-08)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.5.0](https://github.com/invertase/react-native-firebase/compare/v23.4.1...v23.5.0) (2025-10-30)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.4.1](https://github.com/invertase/react-native-firebase/compare/v23.4.0...v23.4.1) (2025-10-14)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.4.0](https://github.com/invertase/react-native-firebase/compare/v23.3.1...v23.4.0) (2025-09-24)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.3.1](https://github.com/invertase/react-native-firebase/compare/v23.3.0...v23.3.1) (2025-09-08)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.3.0](https://github.com/invertase/react-native-firebase/compare/v23.2.2...v23.3.0) (2025-09-04)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.2.2](https://github.com/invertase/react-native-firebase/compare/v23.2.1...v23.2.2) (2025-09-03)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.2.1](https://github.com/invertase/react-native-firebase/compare/v23.2.0...v23.2.1) (2025-09-01)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.2.0](https://github.com/invertase/react-native-firebase/compare/v23.1.2...v23.2.0) (2025-08-29)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.1.2](https://github.com/invertase/react-native-firebase/compare/v23.1.1...v23.1.2) (2025-08-25)
+
+### Bug Fixes
+
+- **database, other:** correctly reject for unsupported keepSynced API ([c7391f0](https://github.com/invertase/react-native-firebase/commit/c7391f09facebb0d02bb7b910fb52170c14096dd))
+
+## [23.1.1](https://github.com/invertase/react-native-firebase/compare/v23.1.0...v23.1.1) (2025-08-22)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.1.0](https://github.com/invertase/react-native-firebase/compare/v23.0.1...v23.1.0) (2025-08-19)
+
+### Bug Fixes
+
+- **database:** offer more prescriptive advice for unimplemented off() method ([079b0e0](https://github.com/invertase/react-native-firebase/commit/079b0e0da2422e873bfa6e73add50d72e715ed59))
+- **database:** wrap internal object construction in deprecation proxies ([67dad27](https://github.com/invertase/react-native-firebase/commit/67dad275f7239172fc0327dc4a2d40f046a2a2de))
+
+## [23.0.1](https://github.com/invertase/react-native-firebase/compare/v23.0.0...v23.0.1) (2025-08-12)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [23.0.0](https://github.com/invertase/react-native-firebase/compare/v22.4.0...v23.0.0) (2025-08-07)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [22.4.0](https://github.com/invertase/react-native-firebase/compare/v22.3.0...v22.4.0) (2025-07-10)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [22.3.0](https://github.com/invertase/react-native-firebase/compare/v22.2.1...v22.3.0) (2025-07-08)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [22.2.1](https://github.com/invertase/react-native-firebase/compare/v22.2.0...v22.2.1) (2025-06-10)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [22.2.0](https://github.com/invertase/react-native-firebase/compare/v22.1.0...v22.2.0) (2025-05-12)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [22.1.0](https://github.com/invertase/react-native-firebase/compare/v22.0.0...v22.1.0) (2025-04-30)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [22.0.0](https://github.com/invertase/react-native-firebase/compare/v21.14.0...v22.0.0) (2025-04-25)
+
+### Bug Fixes
+
+- **android:** use `=` assignment vs deprecated space-assignment ([39c2ecb](https://github.com/invertase/react-native-firebase/commit/39c2ecb0069a8a5a65b04fb7f86ccecf83273868))
+- enable provenance signing during publish ([4535f0d](https://github.com/invertase/react-native-firebase/commit/4535f0d5756c89aeb8f8e772348c71d8176348be))
+
+## [21.14.0](https://github.com/invertase/react-native-firebase/compare/v21.13.0...v21.14.0) (2025-04-14)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.13.0](https://github.com/invertase/react-native-firebase/compare/v21.12.3...v21.13.0) (2025-03-31)
+
+### Bug Fixes
+
+- **database:** improve type definitions ([#8373](https://github.com/invertase/react-native-firebase/issues/8373)) ([95050c0](https://github.com/invertase/react-native-firebase/commit/95050c05ca88a7e22a9a55302f80240d1401bda8))
+
+## [21.12.3](https://github.com/invertase/react-native-firebase/compare/v21.12.2...v21.12.3) (2025-03-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.12.2](https://github.com/invertase/react-native-firebase/compare/v21.12.1...v21.12.2) (2025-03-23)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.12.1](https://github.com/invertase/react-native-firebase/compare/v21.12.0...v21.12.1) (2025-03-22)
+
+### Bug Fixes
+
+- **database:** define increment in modular API ([#8377](https://github.com/invertase/react-native-firebase/issues/8377)) ([e13598b](https://github.com/invertase/react-native-firebase/commit/e13598bcb0d3612c6adddd2a684af2ae6a3fa9d3))
+
+## [21.12.0](https://github.com/invertase/react-native-firebase/compare/v21.11.0...v21.12.0) (2025-03-03)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.11.0](https://github.com/invertase/react-native-firebase/compare/v21.10.1...v21.11.0) (2025-02-20)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.10.1](https://github.com/invertase/react-native-firebase/compare/v21.10.0...v21.10.1) (2025-02-18)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.10.0](https://github.com/invertase/react-native-firebase/compare/v21.9.0...v21.10.0) (2025-02-11)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.9.0](https://github.com/invertase/react-native-firebase/compare/v21.8.0...v21.9.0) (2025-02-11)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.8.0](https://github.com/invertase/react-native-firebase/compare/v21.7.4...v21.8.0) (2025-02-10)
+
+### Bug Fixes
+
+- **database:** database emulator config respects android_bypass_emulator_url_remap flag ([7bac573](https://github.com/invertase/react-native-firebase/commit/7bac5732d51e11f2d5c466f3064719e6b4f7a267))
+- do not ship unit tests in released packages ([e71dadf](https://github.com/invertase/react-native-firebase/commit/e71dadfc1c0cad2e89c94100913af31ddf7d9c91))
+
+## [21.7.4](https://github.com/invertase/react-native-firebase/compare/v21.7.3...v21.7.4) (2025-02-08)
+
+### Bug Fixes
+
+- the init calls for modular should use modular getApp() ([79da98b](https://github.com/invertase/react-native-firebase/commit/79da98bf4ecf7860db61b2813b87673f1cd0adfd))
+
+## [21.7.3](https://github.com/invertase/react-native-firebase/compare/v21.7.2...v21.7.3) (2025-02-08)
+
+### Bug Fixes
+
+- **auth:** resolve type issue when migrating to v9 ([#8277](https://github.com/invertase/react-native-firebase/issues/8277)) ([f4e44ad](https://github.com/invertase/react-native-firebase/commit/f4e44ad50ec85604b7ba0ea835490f473ed5447c))
+
+## [21.7.2](https://github.com/invertase/react-native-firebase/compare/v21.7.1...v21.7.2) (2025-02-05)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.7.1](https://github.com/invertase/react-native-firebase/compare/v21.7.0...v21.7.1) (2025-01-20)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.7.0](https://github.com/invertase/react-native-firebase/compare/v21.6.2...v21.7.0) (2025-01-16)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.6.2](https://github.com/invertase/react-native-firebase/compare/v21.6.1...v21.6.2) (2025-01-02)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.6.1](https://github.com/invertase/react-native-firebase/compare/v21.6.0...v21.6.1) (2024-11-25)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.6.0](https://github.com/invertase/react-native-firebase/compare/v21.5.0...v21.6.0) (2024-11-20)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.5.0](https://github.com/invertase/react-native-firebase/compare/v21.4.1...v21.5.0) (2024-11-16)
+
+### Bug Fixes
+
+- **android:** rn74 forward-port onCatalystInstanceDestroy -> invalidate ([83696ea](https://github.com/invertase/react-native-firebase/commit/83696ea4c944b2be0b8fd9f2fc1db212800cbcf8))
+
+## [21.4.1](https://github.com/invertase/react-native-firebase/compare/v21.4.0...v21.4.1) (2024-11-13)
+
+### Reverts
+
+- Revert "fix(ios, sdk): constrain transitive dependencies more tightly" ([1ff247c](https://github.com/invertase/react-native-firebase/commit/1ff247cd73804efbd52eb9490f68087685de814c))
+
+## [21.4.0](https://github.com/invertase/react-native-firebase/compare/v21.3.0...v21.4.0) (2024-11-07)
+
+### Features
+
+- enable tvOS installation on all package with upstream support ([e8e5f7f](https://github.com/invertase/react-native-firebase/commit/e8e5f7f9aab9a58aabf9a7b0cd756584240dbc48))
+
+## [21.3.0](https://github.com/invertase/react-native-firebase/compare/v21.2.0...v21.3.0) (2024-10-31)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.2.0](https://github.com/invertase/react-native-firebase/compare/v21.1.1...v21.2.0) (2024-10-22)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.1.1](https://github.com/invertase/react-native-firebase/compare/v21.1.0...v21.1.1) (2024-10-22)
+
+### Bug Fixes
+
+- **ios, sdk:** constrain transitive dependencies more tightly ([d03ab42](https://github.com/invertase/react-native-firebase/commit/d03ab42a163a17268bac344ccd135dc18849e1be))
+
+## [21.1.0](https://github.com/invertase/react-native-firebase/compare/v21.0.0...v21.1.0) (2024-10-21)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [21.0.0](https://github.com/invertase/react-native-firebase/compare/v20.5.0...v21.0.0) (2024-09-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [20.5.0](https://github.com/invertase/react-native-firebase/compare/v20.4.0...v20.5.0) (2024-09-11)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [20.4.0](https://github.com/invertase/react-native-firebase/compare/v20.3.0...v20.4.0) (2024-08-13)
+
+### Bug Fixes
+
+- **database:** fixes modular imports exports ([#7916](https://github.com/invertase/react-native-firebase/issues/7916)) ([7022204](https://github.com/invertase/react-native-firebase/commit/7022204616f6149e3327cbf2ab8a469f537a7b61))
+
+## [20.3.0](https://github.com/invertase/react-native-firebase/compare/v20.2.1...v20.3.0) (2024-07-19)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [20.2.1](https://github.com/invertase/react-native-firebase/compare/v20.2.0...v20.2.1) (2024-07-17)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [20.2.0](https://github.com/invertase/react-native-firebase/compare/v20.1.0...v20.2.0) (2024-07-15)
+
+### Features
+
+- **other:** Add Database support ([#7887](https://github.com/invertase/react-native-firebase/issues/7887)) ([fbb773a](https://github.com/invertase/react-native-firebase/commit/fbb773a87c167bdc92265fe261aeb777d4660cd7))
+
+### Bug Fixes
+
+- **database:** set priority on child snapshot if available ([#7897](https://github.com/invertase/react-native-firebase/issues/7897)) ([9028ae4](https://github.com/invertase/react-native-firebase/commit/9028ae4785eb17239ae2ab49d343a39c01a349e7))
+
+## [20.1.0](https://github.com/invertase/react-native-firebase/compare/v20.0.0...v20.1.0) (2024-06-04)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [20.0.0](https://github.com/invertase/react-native-firebase/compare/v19.3.0...v20.0.0) (2024-05-20)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [19.3.0](https://github.com/invertase/react-native-firebase/compare/v19.2.2...v19.3.0) (2024-05-20)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [19.2.2](https://github.com/invertase/react-native-firebase/compare/v19.2.1...v19.2.2) (2024-04-13)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [19.2.1](https://github.com/invertase/react-native-firebase/compare/v19.2.0...v19.2.1) (2024-04-12)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [19.2.0](https://github.com/invertase/react-native-firebase/compare/v19.1.2...v19.2.0) (2024-04-10)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [19.1.2](https://github.com/invertase/react-native-firebase/compare/v19.1.1...v19.1.2) (2024-04-03)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [19.1.1](https://github.com/invertase/react-native-firebase/compare/v19.1.0...v19.1.1) (2024-03-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [19.1.0](https://github.com/invertase/react-native-firebase/compare/v19.0.1...v19.1.0) (2024-03-23)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [19.0.1](https://github.com/invertase/react-native-firebase/compare/v19.0.0...v19.0.1) (2024-03-07)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [19.0.0](https://github.com/invertase/react-native-firebase/compare/v18.9.0...v19.0.0) (2024-02-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.9.0](https://github.com/invertase/react-native-firebase/compare/v18.8.0...v18.9.0) (2024-02-21)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.8.0](https://github.com/invertase/react-native-firebase/compare/v18.7.3...v18.8.0) (2024-01-25)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.7.3](https://github.com/invertase/react-native-firebase/compare/v18.7.2...v18.7.3) (2023-12-13)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.7.2](https://github.com/invertase/react-native-firebase/compare/v18.7.1...v18.7.2) (2023-12-08)
+
+### Bug Fixes
+
+- **database:** react-native 0.73 compatibility ([788cc22](https://github.com/invertase/react-native-firebase/commit/788cc228b7ab34af371bf0c537bbc2033a789b1a))
+
+## [18.7.1](https://github.com/invertase/react-native-firebase/compare/v18.7.0...v18.7.1) (2023-11-29)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.7.0](https://github.com/invertase/react-native-firebase/compare/v18.6.2...v18.7.0) (2023-11-28)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.6.2](https://github.com/invertase/react-native-firebase/compare/v18.6.1...v18.6.2) (2023-11-23)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.6.1](https://github.com/invertase/react-native-firebase/compare/v18.6.0...v18.6.1) (2023-11-01)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.6.0](https://github.com/invertase/react-native-firebase/compare/v18.5.0...v18.6.0) (2023-10-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.5.0](https://github.com/invertase/react-native-firebase/compare/v18.4.0...v18.5.0) (2023-09-22)
+
+### Features
+
+- **database:** Firebase V9 modular API ([#7136](https://github.com/invertase/react-native-firebase/issues/7136)) ([21531f2](https://github.com/invertase/react-native-firebase/commit/21531f26438cc34e4b86f17d58102263a73f2747))
+
+## [18.4.0](https://github.com/invertase/react-native-firebase/compare/v18.3.2...v18.4.0) (2023-09-11)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.3.2](https://github.com/invertase/react-native-firebase/compare/v18.3.1...v18.3.2) (2023-09-02)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.3.1](https://github.com/invertase/react-native-firebase/compare/v18.3.0...v18.3.1) (2023-08-23)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.3.0](https://github.com/invertase/react-native-firebase/compare/v18.2.0...v18.3.0) (2023-07-19)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.2.0](https://github.com/invertase/react-native-firebase/compare/v18.1.0...v18.2.0) (2023-07-13)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.1.0](https://github.com/invertase/react-native-firebase/compare/v18.0.0...v18.1.0) (2023-06-22)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [18.0.0](https://github.com/invertase/react-native-firebase/compare/v17.5.0...v18.0.0) (2023-06-05)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [17.5.0](https://github.com/invertase/react-native-firebase/compare/v17.4.3...v17.5.0) (2023-05-11)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [17.4.3](https://github.com/invertase/react-native-firebase/compare/v17.4.2...v17.4.3) (2023-04-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [17.4.2](https://github.com/invertase/react-native-firebase/compare/v17.4.1...v17.4.2) (2023-04-05)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [17.4.1](https://github.com/invertase/react-native-firebase/compare/v17.4.0...v17.4.1) (2023-04-01)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [17.4.0](https://github.com/invertase/react-native-firebase/compare/v17.3.2...v17.4.0) (2023-03-25)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [17.3.2](https://github.com/invertase/react-native-firebase/compare/v17.3.1...v17.3.2) (2023-03-05)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [17.3.1](https://github.com/invertase/react-native-firebase/compare/v17.3.0...v17.3.1) (2023-02-23)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [17.3.0](https://github.com/invertase/react-native-firebase/compare/v17.2.0...v17.3.0) (2023-02-15)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [17.2.0](https://github.com/invertase/react-native-firebase/compare/v17.1.0...v17.2.0) (2023-02-15)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [17.1.0](https://github.com/invertase/react-native-firebase/compare/v17.0.0...v17.1.0) (2023-02-09)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [17.0.0](https://github.com/invertase/react-native-firebase/compare/v16.7.0...v17.0.0) (2023-02-02)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [16.7.0](https://github.com/invertase/react-native-firebase/compare/v16.6.0...v16.7.0) (2023-01-28)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [16.6.0](https://github.com/invertase/react-native-firebase/compare/v16.5.2...v16.6.0) (2023-01-27)
+
+### Bug Fixes
+
+- **database, types:** transaction update type is any not object ([#6782](https://github.com/invertase/react-native-firebase/issues/6782)) ([1788a2d](https://github.com/invertase/react-native-firebase/commit/1788a2d10aa61c405958580a767f24e05cb5ccaa))
+
+### [16.5.2](https://github.com/invertase/react-native-firebase/compare/v16.5.1...v16.5.2) (2023-01-23)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [16.5.1](https://github.com/invertase/react-native-firebase/compare/v16.5.0...v16.5.1) (2023-01-20)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [16.5.0](https://github.com/invertase/react-native-firebase/compare/v16.4.6...v16.5.0) (2022-12-16)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [16.4.6](https://github.com/invertase/react-native-firebase/compare/v16.4.5...v16.4.6) (2022-11-18)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [16.4.5](https://github.com/invertase/react-native-firebase/compare/v16.4.4...v16.4.5) (2022-11-16)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [16.4.4](https://github.com/invertase/react-native-firebase/compare/v16.4.3...v16.4.4) (2022-11-14)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [16.4.3](https://github.com/invertase/react-native-firebase/compare/v16.4.2...v16.4.3) (2022-11-06)
+
+### Bug Fixes
+
+- **database, android:** revert double-emulator protection ([3857439](https://github.com/invertase/react-native-firebase/commit/38574398ea9f03d016d89caa522b17fda805de9e))
+
+### [16.4.2](https://github.com/invertase/react-native-firebase/compare/v16.4.1...v16.4.2) (2022-11-04)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [16.4.1](https://github.com/invertase/react-native-firebase/compare/v16.4.0...v16.4.1) (2022-11-02)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [16.4.0](https://github.com/invertase/react-native-firebase/compare/v16.3.1...v16.4.0) (2022-10-30)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [16.3.1](https://github.com/invertase/react-native-firebase/compare/v16.3.0...v16.3.1) (2022-10-28)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [16.3.0](https://github.com/invertase/react-native-firebase/compare/v16.2.0...v16.3.0) (2022-10-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [16.2.0](https://github.com/invertase/react-native-firebase/compare/v16.1.1...v16.2.0) (2022-10-23)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+### [16.1.1](https://github.com/invertase/react-native-firebase/compare/v16.1.0...v16.1.1) (2022-10-21)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [16.1.0](https://github.com/invertase/react-native-firebase/compare/v16.0.0...v16.1.0) (2022-10-20)
+
+### Bug Fixes
+
+- **database, useEmulator:** drop multiple calls to useEmulator ([5fcfc44](https://github.com/invertase/react-native-firebase/commit/5fcfc4485e6e44225b144bc517017a61ac2ed40d)), closes [#5650](https://github.com/invertase/react-native-firebase/issues/5650)
+
+## [16.0.0](https://github.com/invertase/react-native-firebase/compare/v15.7.1...v16.0.0) (2022-10-19)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [15.7.1](https://github.com/invertase/react-native-firebase/compare/v15.7.0...v15.7.1) (2022-10-19)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [15.7.0](https://github.com/invertase/react-native-firebase/compare/v15.6.0...v15.7.0) (2022-10-01)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [15.6.0](https://github.com/invertase/react-native-firebase/compare/v15.5.0...v15.6.0) (2022-09-17)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [15.5.0](https://github.com/invertase/react-native-firebase/compare/v15.4.0...v15.5.0) (2022-09-16)
+
+### Bug Fixes
+
+- **database:** support new `EventEmitter.js` logic of RN 0.70.0 ([#6539](https://github.com/invertase/react-native-firebase/issues/6539)) ([3371727](https://github.com/invertase/react-native-firebase/commit/3371727dd23976ce769696c71865460740502d80))
+
+# [15.4.0](https://github.com/invertase/react-native-firebase/compare/v15.3.0...v15.4.0) (2022-08-27)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [15.3.0](https://github.com/invertase/react-native-firebase/compare/v15.2.0...v15.3.0) (2022-08-07)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [15.2.0](https://github.com/invertase/react-native-firebase/compare/v15.1.1...v15.2.0) (2022-07-21)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [15.1.1](https://github.com/invertase/react-native-firebase/compare/v15.1.0...v15.1.1) (2022-06-28)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [15.1.0](https://github.com/invertase/react-native-firebase/compare/v15.0.0...v15.1.0) (2022-06-28)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [15.0.0](https://github.com/invertase/react-native-firebase/compare/v14.11.1...v15.0.0) (2022-06-20)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.11.1](https://github.com/invertase/react-native-firebase/compare/v14.11.0...v14.11.1) (2022-06-17)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.11.0](https://github.com/invertase/react-native-firebase/compare/v14.10.1...v14.11.0) (2022-05-27)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.10.1](https://github.com/invertase/react-native-firebase/compare/v14.10.0...v14.10.1) (2022-05-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.10.0](https://github.com/invertase/react-native-firebase/compare/v14.9.4...v14.10.0) (2022-05-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.9.4](https://github.com/invertase/react-native-firebase/compare/v14.9.3...v14.9.4) (2022-05-14)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.9.3](https://github.com/invertase/react-native-firebase/compare/v14.9.2...v14.9.3) (2022-05-10)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.9.2](https://github.com/invertase/react-native-firebase/compare/v14.9.1...v14.9.2) (2022-05-10)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.9.1](https://github.com/invertase/react-native-firebase/compare/v14.9.0...v14.9.1) (2022-04-28)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.9.0](https://github.com/invertase/react-native-firebase/compare/v14.8.1...v14.9.0) (2022-04-27)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.8.1](https://github.com/invertase/react-native-firebase/compare/v14.8.0...v14.8.1) (2022-04-25)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.8.0](https://github.com/invertase/react-native-firebase/compare/v14.7.0...v14.8.0) (2022-04-19)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.7.0](https://github.com/invertase/react-native-firebase/compare/v14.6.0...v14.7.0) (2022-03-23)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.6.0](https://github.com/invertase/react-native-firebase/compare/v14.5.1...v14.6.0) (2022-03-23)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.5.1](https://github.com/invertase/react-native-firebase/compare/v14.5.0...v14.5.1) (2022-03-05)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.5.0](https://github.com/invertase/react-native-firebase/compare/v14.4.0...v14.5.0) (2022-02-15)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.4.0](https://github.com/invertase/react-native-firebase/compare/v14.3.3...v14.4.0) (2022-02-13)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.3.3](https://github.com/invertase/react-native-firebase/compare/v14.3.2...v14.3.3) (2022-02-12)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.3.2](https://github.com/invertase/react-native-firebase/compare/v14.3.1...v14.3.2) (2022-02-10)
+
+### Bug Fixes
+
+- **app, ios:** use NSInteger not NSInteger\* for prefs ([0148901](https://github.com/invertase/react-native-firebase/commit/01489010c920fc8e367a04f9decb8a8c94c5d8c1))
+
+## [14.3.1](https://github.com/invertase/react-native-firebase/compare/v14.3.0...v14.3.1) (2022-02-07)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.3.0](https://github.com/invertase/react-native-firebase/compare/v14.2.4...v14.3.0) (2022-01-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.2.4](https://github.com/invertase/react-native-firebase/compare/v14.2.3...v14.2.4) (2022-01-24)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.2.3](https://github.com/invertase/react-native-firebase/compare/v14.2.2...v14.2.3) (2022-01-20)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.2.2](https://github.com/invertase/react-native-firebase/compare/v14.2.1...v14.2.2) (2022-01-06)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.2.1](https://github.com/invertase/react-native-firebase/compare/v14.2.0...v14.2.1) (2021-12-31)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.2.0](https://github.com/invertase/react-native-firebase/compare/v14.1.0...v14.2.0) (2021-12-31)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.1.0](https://github.com/invertase/react-native-firebase/compare/v14.0.1...v14.1.0) (2021-12-18)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [14.0.1](https://github.com/invertase/react-native-firebase/compare/v14.0.0...v14.0.1) (2021-12-15)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [14.0.0](https://github.com/invertase/react-native-firebase/compare/v13.1.1...v14.0.0) (2021-12-14)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [13.1.1](https://github.com/invertase/react-native-firebase/compare/v13.1.0...v13.1.1) (2021-12-14)
+
+### Bug Fixes
+
+- **deps:** AGP7.0.4, firebase-android-sdk 29.0.2, javascript deps ([55d0a36](https://github.com/invertase/react-native-firebase/commit/55d0a36a0addc54e347f26bb8ee88bb38b0fa4a6))
+
+# [13.1.0](https://github.com/invertase/react-native-firebase/compare/v13.0.1...v13.1.0) (2021-12-02)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [13.0.1](https://github.com/invertase/react-native-firebase/compare/v13.0.0...v13.0.1) (2021-11-05)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [13.0.0](https://github.com/invertase/react-native-firebase/compare/v12.9.3...v13.0.0) (2021-10-31)
+
+### Bug Fixes
+
+- rename default branch to main ([25e1d3d](https://github.com/invertase/react-native-firebase/commit/25e1d3d5a1a8311588938dc9d8fdf71d11cd9963))
+
+## [12.9.3](https://github.com/invertase/react-native-firebase/compare/v12.9.2...v12.9.3) (2021-10-22)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [12.9.2](https://github.com/invertase/react-native-firebase/compare/v12.9.1...v12.9.2) (2021-10-17)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [12.9.1](https://github.com/invertase/react-native-firebase/compare/v12.9.0...v12.9.1) (2021-10-10)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [12.9.0](https://github.com/invertase/react-native-firebase/compare/v12.8.0...v12.9.0) (2021-10-03)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [12.8.0](https://github.com/invertase/react-native-firebase/compare/v12.7.5...v12.8.0) (2021-09-14)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [12.7.5](https://github.com/invertase/react-native-firebase/compare/v12.7.4...v12.7.5) (2021-09-04)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [12.7.4](https://github.com/invertase/react-native-firebase/compare/v12.7.3...v12.7.4) (2021-08-31)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [12.7.3](https://github.com/invertase/react-native-firebase/compare/v12.7.2...v12.7.3) (2021-08-24)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [12.7.2](https://github.com/invertase/react-native-firebase/compare/v12.7.1...v12.7.2) (2021-08-21)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [12.7.1](https://github.com/invertase/react-native-firebase/compare/v12.7.0...v12.7.1) (2021-08-20)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [12.7.0](https://github.com/invertase/react-native-firebase/compare/v12.6.1...v12.7.0) (2021-08-19)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [12.6.1](https://github.com/invertase/react-native-firebase/compare/v12.6.0...v12.6.1) (2021-08-17)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [12.6.0](https://github.com/invertase/react-native-firebase/compare/v12.5.0...v12.6.0) (2021-08-16)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [12.5.0](https://github.com/invertase/react-native-firebase/compare/v12.4.0...v12.5.0) (2021-08-12)
+
+### Bug Fixes
+
+- **database, android:** remove System.err statement from useEmulator development ([dc84872](https://github.com/invertase/react-native-firebase/commit/dc84872017082e49209376d4c9e675cf5c5572ec))
+
+# [12.4.0](https://github.com/invertase/react-native-firebase/compare/v12.3.0...v12.4.0) (2021-07-29)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [12.3.0](https://github.com/invertase/react-native-firebase/compare/v12.2.0...v12.3.0) (2021-07-21)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [12.2.0](https://github.com/invertase/react-native-firebase/compare/v12.1.0...v12.2.0) (2021-07-16)
+
+### Bug Fixes
+
+- **database:** call cancellation callback when using ref.on ([#5371](https://github.com/invertase/react-native-firebase/issues/5371)) ([26b59db](https://github.com/invertase/react-native-firebase/commit/26b59dbe06bedc64ed83923ecf132b47fe0eb05b))
+
+# [12.1.0](https://github.com/invertase/react-native-firebase/compare/v12.0.0...v12.1.0) (2021-06-11)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [12.0.0](https://github.com/invertase/react-native-firebase/compare/v11.5.0...v12.0.0) (2021-05-19)
+
+### Bug Fixes
+
+- **android:** correct lint issues for various API mis-use ([eb8d893](https://github.com/invertase/react-native-firebase/commit/eb8d89306fd569d7ef64298a99e970c653b79178)), closes [#3917](https://github.com/invertase/react-native-firebase/issues/3917)
+
+### Features
+
+- **database:** add database.useEmulator() ([0632ca5](https://github.com/invertase/react-native-firebase/commit/0632ca596336b2b5738734ae614f6c50a5f6f577))
+
+# [11.5.0](https://github.com/invertase/react-native-firebase/compare/v11.4.1...v11.5.0) (2021-05-12)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [11.4.1](https://github.com/invertase/react-native-firebase/compare/v11.4.0...v11.4.1) (2021-04-29)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [11.4.0](https://github.com/invertase/react-native-firebase/compare/v11.3.3...v11.4.0) (2021-04-29)
+
+### Bug Fixes
+
+- **database, update:** allow empty objects in ref.update() ([574f691](https://github.com/invertase/react-native-firebase/commit/574f6918d87125d5ba863a6a2cc24f8a78cf0040)), closes [#5218](https://github.com/invertase/react-native-firebase/issues/5218)
+
+## [11.3.3](https://github.com/invertase/react-native-firebase/compare/v11.3.2...v11.3.3) (2021-04-24)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [11.3.2](https://github.com/invertase/react-native-firebase/compare/v11.3.1...v11.3.2) (2021-04-19)
+
+### Bug Fixes
+
+- **all, android:** purge jcenter() from android build ([2c6a6a8](https://github.com/invertase/react-native-firebase/commit/2c6a6a82ec363fd948ea880fd397acb886c97453))
+
+## [11.3.1](https://github.com/invertase/react-native-firebase/compare/v11.3.0...v11.3.1) (2021-04-18)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [11.3.0](https://github.com/invertase/react-native-firebase/compare/v11.2.0...v11.3.0) (2021-04-16)
+
+### Bug Fixes
+
+- **database, types:** harmonize database.on() w/firebase-js-sdk ([6aea33f](https://github.com/invertase/react-native-firebase/commit/6aea33f1d41412363e2bd5d50a920dfc669ed3a7)), closes [#4550](https://github.com/invertase/react-native-firebase/issues/4550)
+
+### Performance Improvements
+
+- increase task throughput in Android using thread pool executor ([#4981](https://github.com/invertase/react-native-firebase/issues/4981)) ([0e4e331](https://github.com/invertase/react-native-firebase/commit/0e4e3312315c020ecd760f8d3fea4f0347d2276b))
+
+# [11.2.0](https://github.com/invertase/react-native-firebase/compare/v11.1.2...v11.2.0) (2021-03-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [11.1.2](https://github.com/invertase/react-native-firebase/compare/v11.1.1...v11.1.2) (2021-03-17)
+
+### Bug Fixes
+
+- **database, types:** harmonize on/once/off types with firebase-js-sdk ([fbc06ca](https://github.com/invertase/react-native-firebase/commit/fbc06cac888e13071c5f87c652aeff40c3b27412)), closes [#5027](https://github.com/invertase/react-native-firebase/issues/5027)
+- **listeners:** port Emitter.once to analogous addListener/remove API ([5eb2f59](https://github.com/invertase/react-native-firebase/commit/5eb2f599e93ccecd91c800018959f9dc370f1e24))
+
+## [11.1.1](https://github.com/invertase/react-native-firebase/compare/v11.1.0...v11.1.1) (2021-03-16)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [11.1.0](https://github.com/invertase/react-native-firebase/compare/v11.0.0...v11.1.0) (2021-03-13)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [11.0.0](https://github.com/invertase/react-native-firebase/compare/v10.8.1...v11.0.0) (2021-03-03)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [10.8.1](https://github.com/invertase/react-native-firebase/compare/v10.8.0...v10.8.1) (2021-02-22)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [10.8.0](https://github.com/invertase/react-native-firebase/compare/v10.7.0...v10.8.0) (2021-02-13)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [10.7.0](https://github.com/invertase/react-native-firebase/compare/v10.6.4...v10.7.0) (2021-02-09)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [10.6.4](https://github.com/invertase/react-native-firebase/compare/v10.6.3...v10.6.4) (2021-02-05)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [10.6.3](https://github.com/invertase/react-native-firebase/compare/v10.6.2...v10.6.3) (2021-02-05)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [10.6.1](https://github.com/invertase/react-native-firebase/compare/v10.6.0...v10.6.1) (2021-02-04)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [10.6.0](https://github.com/invertase/react-native-firebase/compare/v10.5.1...v10.6.0) (2021-02-04)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [10.5.1](https://github.com/invertase/react-native-firebase/compare/v10.5.0...v10.5.1) (2021-01-19)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [10.4.1](https://github.com/invertase/react-native-firebase/compare/v10.4.0...v10.4.1) (2021-01-08)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [10.4.0](https://github.com/invertase/react-native-firebase/compare/v10.3.1...v10.4.0) (2020-12-30)
+
+### Bug Fixes
+
+- **ios:** bump ios min deployment to ios10 - remnant from [#4471](https://github.com/invertase/react-native-firebase/issues/4471) ([4a57578](https://github.com/invertase/react-native-firebase/commit/4a5757827789141600625eebe5e13c976ddb7402))
+
+## [10.3.1](https://github.com/invertase/react-native-firebase/compare/v10.3.0...v10.3.1) (2020-12-18)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [10.3.0](https://github.com/invertase/react-native-firebase/compare/v10.2.0...v10.3.0) (2020-12-18)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [10.2.0](https://github.com/invertase/react-native-firebase/compare/v10.1.1...v10.2.0) (2020-12-11)
+
+### Features
+
+- firebase-ios-sdk 7.2.0 / firebase-android-sdk 26.1.1 ([#4648](https://github.com/invertase/react-native-firebase/issues/4648)) ([a158a74](https://github.com/invertase/react-native-firebase/commit/a158a74dee0dd6774c725ff1213453f8dfdcb8f5))
+
+## [10.1.1](https://github.com/invertase/react-native-firebase/compare/v10.1.0...v10.1.1) (2020-12-02)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [10.1.0](https://github.com/invertase/react-native-firebase/compare/v10.0.0...v10.1.0) (2020-11-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [10.0.0](https://github.com/invertase/react-native-firebase/compare/fc8c4c0622f8e6814879d0306f66012df5b83cd8...v10.0.0) (2020-11-17)
+
+### BREAKING CHANGES
+
+- breaking change to mark new internal versioning requirements.
+
+## [7.5.15](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.14...@react-native-firebase/database@7.5.15) (2020-11-10)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.5.14](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.13...@react-native-firebase/database@7.5.14) (2020-11-10)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.5.13](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.12...@react-native-firebase/database@7.5.13) (2020-10-30)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.5.12](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.11...@react-native-firebase/database@7.5.12) (2020-10-16)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.5.11](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.10...@react-native-firebase/database@7.5.11) (2020-09-30)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.5.10](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.9...@react-native-firebase/database@7.5.10) (2020-09-30)
+
+### Bug Fixes
+
+- **types:** enable TypeScript libCheck & resolve type conflicts ([#4306](https://github.com/invertase/react-native-firebase/issues/4306)) ([aa8ee8b](https://github.com/invertase/react-native-firebase/commit/aa8ee8b7e83443d2c1664993800e15faf4b59b0e))
+
+## [7.5.9](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.8...@react-native-firebase/database@7.5.9) (2020-09-30)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.5.8](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.7...@react-native-firebase/database@7.5.8) (2020-09-17)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.5.7](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.6...@react-native-firebase/database@7.5.7) (2020-09-17)
+
+### Bug Fixes
+
+- **ios, podspec:** depend on React-Core instead of React ([#4275](https://github.com/invertase/react-native-firebase/issues/4275)) ([fd1a2be](https://github.com/invertase/react-native-firebase/commit/fd1a2be6b6ab1dec89e5dce1fc237435c3e1d510))
+
+## [7.5.6](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.5...@react-native-firebase/database@7.5.6) (2020-09-11)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.5.5](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.4...@react-native-firebase/database@7.5.5) (2020-09-04)
+
+### Bug Fixes
+
+- **database, types:** updated .once type defs ([#3842](https://github.com/invertase/react-native-firebase/issues/3842)) ([c9728f0](https://github.com/invertase/react-native-firebase/commit/c9728f065242985039c86097677100a61357e1d2))
+
+## [7.5.4](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.3...@react-native-firebase/database@7.5.4) (2020-08-30)
+
+### Bug Fixes
+
+- **database:** `.` is a valid character in ref path ([#4177](https://github.com/invertase/react-native-firebase/issues/4177)) ([a0d01b5](https://github.com/invertase/react-native-firebase/commit/a0d01b5c37f3be9b3091aff6eff7f101be201958))
+
+## [7.5.3](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.2...@react-native-firebase/database@7.5.3) (2020-08-28)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.5.2](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.1...@react-native-firebase/database@7.5.2) (2020-08-28)
+
+### Bug Fixes
+
+- **database:** correctly handle invalid keys as a reference ([#4100](https://github.com/invertase/react-native-firebase/issues/4100)) ([4df5f87](https://github.com/invertase/react-native-firebase/commit/4df5f87db51b169acbe17b4d7eb7e8fed59b8a66))
+
+## [7.5.1](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.5.0...@react-native-firebase/database@7.5.1) (2020-08-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [7.5.0](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.4.2...@react-native-firebase/database@7.5.0) (2020-08-26)
+
+### Features
+
+- bump firebase sdk versions, add GoogleApi dep, use Android API29 ([#4122](https://github.com/invertase/react-native-firebase/issues/4122)) ([728f418](https://github.com/invertase/react-native-firebase/commit/728f41863832d21230c6eb1f55385284fef03c09))
+
+## [7.4.2](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.4.1...@react-native-firebase/database@7.4.2) (2020-08-15)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.4.1](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.4.0...@react-native-firebase/database@7.4.1) (2020-08-03)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [7.4.0](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.3.2...@react-native-firebase/database@7.4.0) (2020-08-03)
+
+### Features
+
+- use latest android & ios Firebase SDKs version ([#3956](https://github.com/invertase/react-native-firebase/issues/3956)) ([e7b4bb3](https://github.com/invertase/react-native-firebase/commit/e7b4bb31b05985c044b1f01625a43e364bb653ef))
+
+## [7.3.2](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.3.1...@react-native-firebase/database@7.3.2) (2020-07-09)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.3.1](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.3.0...@react-native-firebase/database@7.3.1) (2020-07-07)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [7.3.0](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.2.7...@react-native-firebase/database@7.3.0) (2020-07-07)
+
+### Features
+
+- **android,ios:** upgrade native SDK versions ([#3881](https://github.com/invertase/react-native-firebase/issues/3881)) ([6cb68a8](https://github.com/invertase/react-native-firebase/commit/6cb68a8ea808392fac3a28bdb1a76049c7b52e86))
+
+## [7.2.7](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.2.6...@react-native-firebase/database@7.2.7) (2020-07-05)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.2.6](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.2.5...@react-native-firebase/database@7.2.6) (2020-06-30)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.2.5](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.2.4...@react-native-firebase/database@7.2.5) (2020-06-26)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.2.4](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.2.3...@react-native-firebase/database@7.2.4) (2020-06-22)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.2.3](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.2.2...@react-native-firebase/database@7.2.3) (2020-06-22)
+
+### Bug Fixes
+
+- **ios:** potential race condition fix ([#3484](https://github.com/invertase/react-native-firebase/issues/3484)) ([ca34cef](https://github.com/invertase/react-native-firebase/commit/ca34cef160cd0e632bec6d60e10b45c8efd568c8))
+
+## [7.2.2](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.2.1...@react-native-firebase/database@7.2.2) (2020-06-10)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.2.1](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.2.0...@react-native-firebase/database@7.2.1) (2020-06-03)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [7.2.0](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.1.2...@react-native-firebase/database@7.2.0) (2020-06-01)
+
+### Features
+
+- **database:** add support for ServerValue.increment ([#3561](https://github.com/invertase/react-native-firebase/issues/3561)) ([759d67e](https://github.com/invertase/react-native-firebase/commit/759d67e6fbb7e05cd2fc7d532284e91ab428ca6d))
+
+## [7.1.2](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.1.1...@react-native-firebase/database@7.1.2) (2020-05-29)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.1.1](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.1.0...@react-native-firebase/database@7.1.1) (2020-05-29)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+# [7.1.0](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.0.1...@react-native-firebase/database@7.1.0) (2020-05-22)
+
+### Features
+
+- update native Firebase SDK versions ([#3663](https://github.com/invertase/react-native-firebase/issues/3663)) ([4db9dbc](https://github.com/invertase/react-native-firebase/commit/4db9dbc3ec20bf96de0efad15000f00b41e4a799))
+
+## [7.0.1](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.0.0...@react-native-firebase/database@7.0.1) (2020-05-13)
+
+**Note:** Version bump only for package @react-native-firebase/database
+
+## [7.0.0](https://github.com/invertase/react-native-firebase/compare/@react-native-firebase/database@7.0.0...@react-native-firebase/database@7.0.0) (2020-05-13)
+
+- feat!: all packages should depend on core (#3613) ([252a423](https://github.com/invertase/react-native-firebase/commit/252a4239e98a0f2a55c4afcd2d82e4d5f97e65e9)), closes [#3613](https://github.com/invertase/react-native-firebase/issues/3613)
+
+### Features
+
+- **ios:** podspecs now utilize CoreOnly instead of Core ([#3575](https://github.com/invertase/react-native-firebase/issues/3575)) ([35285f1](https://github.com/invertase/react-native-firebase/commit/35285f1655b16d05e6630fc556f95cccfb707ee4))
+
+### BREAKING CHANGES
+
+- breaking change to mark new internal versioning requirements.

@@ -1,0 +1,331 @@
+name: Code Quality Checks
+
+on:
+  pull_request:
+    branches:
+      - '**'
+  push:
+    branches:
+      - main
+      - release-v*
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linting:
+    name: Lint
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    env:
+      NX_NO_CLOUD: true
+      NX_CACHE_DIRECTORY: .nx/cache
+      NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
+    steps:
+      # https://github.com/actions/checkout/releases
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      # https://github.com/actions/setup-node/releases
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Configure JDK
+        # https://github.com/actions/setup-java/releases
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Restore
+        id: yarn-cache
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-v1-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-yarn-v1
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Restore
+        id: nx-cache
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+          restore-keys: ${{ runner.os }}-nx-v1
+      - name: Yarn Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 30
+          max_attempts: 3
+          command: yarn
+      - name: Lint
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 3
+          retry_wait_seconds: 10
+          max_attempts: 3
+          command: yarn lint
+      - name: Codegen verify
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          retry_wait_seconds: 10
+          max_attempts: 3
+          command: yarn codegen:verify
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Save
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-v1-${{ hashFiles('yarn.lock') }}
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Save
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+
+  typescript:
+    name: TypeScript Build Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NX_NO_CLOUD: true
+      NX_CACHE_DIRECTORY: .nx/cache
+      NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
+    steps:
+      # https://github.com/actions/checkout/releases
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      # https://github.com/actions/setup-node/releases
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Restore
+        id: yarn-cache
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-v1-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-yarn-v1
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Restore
+        id: nx-cache
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+          restore-keys: ${{ runner.os }}-nx-v1
+      - name: Yarn Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 30
+          max_attempts: 3
+          command: yarn
+      - name: Lint
+        run: yarn tsc:compile
+      - name: Test-expo TypeScript
+        run: yarn tsc:compile:test-expo
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Save
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-v1-${{ hashFiles('yarn.lock') }}
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Save
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+
+  attw:
+    name: Published Package Types (attw)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # https://github.com/actions/checkout/releases
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      # https://github.com/actions/setup-node/releases
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Restore
+        id: yarn-cache
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-v1-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-yarn-v1
+      - name: Yarn Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 30
+          max_attempts: 3
+          command: yarn
+      - name: Are The Types Wrong
+        run: yarn attw:check
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Save
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-v1-${{ hashFiles('yarn.lock') }}
+
+
+  consumer-types:
+    name: Consumer Type Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NX_NO_CLOUD: true
+      NX_CACHE_DIRECTORY: .nx/cache
+      NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
+    steps:
+      # https://github.com/actions/checkout/releases
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      # https://github.com/actions/setup-node/releases
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Restore
+        id: yarn-cache
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-v1-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-yarn-v1
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Restore
+        id: nx-cache
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+          restore-keys: ${{ runner.os }}-nx-v1
+      - name: Yarn Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 30
+          max_attempts: 3
+          command: yarn
+      - name: Consumer Type Test
+        run: yarn tsc:compile:consumer
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Save
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-v1-${{ hashFiles('yarn.lock') }}
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Save
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+
+  typedoc:
+    name: TypeDoc Generation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NX_NO_CLOUD: true
+      NX_CACHE_DIRECTORY: .nx/cache
+      NX_WORKSPACE_DATA_DIRECTORY: .nx/workspace-data
+    steps:
+      # https://github.com/actions/checkout/releases
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      # https://github.com/actions/setup-node/releases
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Restore
+        id: yarn-cache
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-with-website-v1-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-yarn-with-website-v1
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Restore
+        id: nx-cache
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}
+          restore-keys: ${{ runner.os }}-nx-v1
+      - name: Yarn Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 30
+          max_attempts: 3
+          command: yarn
+      - name: Generate TypeDoc
+        run: yarn reference:api
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Yarn Cache Save
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-with-website-v1-${{ hashFiles('yarn.lock') }}
+      # https://github.com/actions/cache/releases
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        name: Nx Cache Save
+        if: "${{ github.ref == 'refs/heads/main' }}"
+        continue-on-error: true
+        with:
+          path: .nx/cache
+          key: ${{ runner.os }}-nx-v1-${{ hashFiles('yarn.lock', 'nx.json', 'lerna.json') }}

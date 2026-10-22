@@ -1,0 +1,305 @@
+package io.invertase.firebase.database;
+
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+import static io.invertase.firebase.common.RCTConvertFirebase.toArrayList;
+
+import androidx.annotation.NonNull;
+import com.facebook.react.bridge.ReadableArray;
+import com.google.firebase.database.ChildEventListener;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.Query;
+import com.google.firebase.database.ValueEventListener;
+import io.invertase.firebase.common.RNFBHandleCollisionException;
+import java.util.List;
+import java.util.Map;
+
+public class ReactNativeFirebaseDatabaseQuery implements DatabaseQueryHandle {
+
+  public Query query;
+  final RNFBDatabaseListenerRegistry listeners = new RNFBDatabaseListenerRegistry();
+
+  ReactNativeFirebaseDatabaseQuery(DatabaseReference reference, ReadableArray modifiers) {
+    this.query = reference;
+
+    for (Object m : toArrayList(modifiers)) {
+      Map modifier = (Map) m;
+      String type = (String) modifier.get("type");
+      String name = (String) modifier.get("name");
+
+      if ("orderBy".equals(type)) {
+        applyOrderByModifier(name, modifier);
+      } else if ("limit".equals(type)) {
+        applyLimitModifier(name, modifier);
+      } else if ("filter".equals(type)) {
+        applyFilterModifier(name, modifier);
+      }
+    }
+  }
+
+  /**
+   * Attaches a single single value event listener to the query
+   *
+   * @param eventListener
+   */
+  public void addSingleValueEventListener(ValueEventListener eventListener) {
+    query.addListenerForSingleValueEvent(eventListener);
+  }
+
+  /**
+   * Attaches a child event listener to the query
+   *
+   * @param eventListener
+   */
+  public void addSingleChildEventListener(ChildEventListener eventListener) {
+    query.addChildEventListener(eventListener);
+  }
+
+  /**
+   * Adds a value event listener and stores the query key
+   *
+   * @param eventRegistrationKey
+   * @param listener
+   */
+  public void addEventListener(String eventRegistrationKey, ValueEventListener listener) {
+    try {
+      listeners.putValue(eventRegistrationKey, listener);
+    } catch (RNFBHandleCollisionException | NullPointerException collision) {
+      return;
+    }
+    query.addValueEventListener(listener);
+  }
+
+  /**
+   * Adds a value event listener and stores the query key
+   *
+   * @param eventRegistrationKey
+   * @param listener
+   */
+  public void addEventListener(String eventRegistrationKey, ChildEventListener listener) {
+    try {
+      listeners.putChild(eventRegistrationKey, listener);
+    } catch (RNFBHandleCollisionException | NullPointerException collision) {
+      return;
+    }
+    query.addChildEventListener(listener);
+  }
+
+  /**
+   * Removes a value event listener
+   *
+   * @param listener
+   */
+  public void removeEventListener(@NonNull ValueEventListener listener) {
+    query.removeEventListener(listener);
+  }
+
+  /**
+   * Removes a child event listener
+   *
+   * @param listener
+   */
+  public void removeEventListener(@NonNull ChildEventListener listener) {
+    query.removeEventListener(listener);
+  }
+
+  /**
+   * Removes a value or child event listener by query key
+   *
+   * @param eventRegistrationKey
+   */
+  public void removeEventListener(String eventRegistrationKey) {
+    Object valueListener = listeners.takeValue(eventRegistrationKey);
+    if (valueListener instanceof ValueEventListener) {
+      query.removeEventListener((ValueEventListener) valueListener);
+    }
+
+    Object childListener = listeners.takeChild(eventRegistrationKey);
+    if (childListener instanceof ChildEventListener) {
+      query.removeEventListener((ChildEventListener) childListener);
+    }
+  }
+
+  /** Iterates over all current event listeners on the current query and removes each one */
+  @Override
+  public void removeAllEventListeners() {
+    List<Object> remaining = listeners.takeAll();
+    for (Object listener : remaining) {
+      if (listener instanceof ValueEventListener) {
+        query.removeEventListener((ValueEventListener) listener);
+      } else if (listener instanceof ChildEventListener) {
+        query.removeEventListener((ChildEventListener) listener);
+      }
+    }
+  }
+
+  /**
+   * Returns true/false whether this internal ref has a specific listener by eventRegistrationKey.
+   *
+   * @param eventRegistrationKey
+   * @return
+   */
+  public Boolean hasEventListener(String eventRegistrationKey) {
+    return listeners.hasEventListener(eventRegistrationKey);
+  }
+
+  /**
+   * Returns true/false whether this internal ref has any child or value listeners.
+   *
+   * @return
+   */
+  @Override
+  public Boolean hasListeners() {
+    return listeners.hasListeners();
+  }
+
+  /**
+   * ref().orderBy*(key?)
+   *
+   * @param name
+   * @param modifier
+   */
+  private void applyOrderByModifier(String name, Map modifier) {
+    switch (name) {
+      case "orderByKey":
+        query = query.orderByKey();
+        break;
+      case "orderByPriority":
+        query = query.orderByPriority();
+        break;
+      case "orderByValue":
+        query = query.orderByValue();
+        break;
+      case "orderByChild":
+        String key = (String) modifier.get("key");
+        query = query.orderByChild(key);
+    }
+  }
+
+  /**
+   * ref().limitTo*(number)
+   *
+   * @param name
+   * @param modifier
+   */
+  private Query applyLimitModifier(String name, Map modifier) {
+    int limit = ((Double) modifier.get("value")).intValue();
+    if ("limitToLast".equals(name)) {
+      query = query.limitToLast(limit);
+    } else if ("limitToFirst".equals(name)) {
+      query = query.limitToFirst(limit);
+    }
+    return query;
+  }
+
+  /**
+   * ref().equalTo(), ref().endAt(), ref().startAt();
+   *
+   * @param name
+   * @param modifier
+   */
+  private void applyFilterModifier(String name, Map modifier) {
+    String valueType = (String) modifier.get("valueType");
+    String key = (String) modifier.get("key");
+
+    // Note: equalTo() is handled in JS land by setting startAt() & endAt() to the same
+    // value (see
+    // https://github.com/firebase/firebase-js-sdk/blob/main/packages/database/src/api/Query.ts#L570)
+    if ("endAt".equals(name)) {
+      applyEndAtFilter(key, valueType, modifier);
+    } else if ("startAt".equals(name)) {
+      applyStartAtFilter(key, valueType, modifier);
+    }
+  }
+
+  /**
+   * ref().endAt(value, key?)
+   *
+   * @param key
+   * @param valueType
+   * @param modifier
+   */
+  private void applyEndAtFilter(String key, String valueType, Map modifier) {
+    if ("number".equals(valueType)) {
+      double value = (Double) modifier.get("value");
+      if (key == null) {
+        query = query.endAt(value);
+      } else {
+        query = query.endAt(value, key);
+      }
+    } else if ("boolean".equals(valueType)) {
+      boolean value = (Boolean) modifier.get("value");
+      if (key == null) {
+        query = query.endAt(value);
+      } else {
+        query = query.endAt(value, key);
+      }
+    } else if ("string".equals(valueType)) {
+      String value = (String) modifier.get("value");
+      if (key == null) {
+        query = query.endAt(value);
+      } else {
+        query = query.endAt(value, key);
+      }
+    } else if ("null".equals(valueType)) {
+      if (key == null) {
+        query = query.endAt(null);
+      } else {
+        query = query.endAt(null, key);
+      }
+    }
+  }
+
+  /**
+   * ref().startAt(value, key?)
+   *
+   * @param key
+   * @param valueType
+   * @param modifier
+   */
+  private void applyStartAtFilter(String key, String valueType, Map modifier) {
+    if ("number".equals(valueType)) {
+      double value = (Double) modifier.get("value");
+      if (key == null) {
+        query = query.startAt(value);
+      } else {
+        query = query.startAt(value, key);
+      }
+    } else if ("boolean".equals(valueType)) {
+      boolean value = (Boolean) modifier.get("value");
+      if (key == null) {
+        query = query.startAt(value);
+      } else {
+        query = query.startAt(value, key);
+      }
+    } else if ("string".equals(valueType)) {
+      String value = (String) modifier.get("value");
+      if (key == null) {
+        query = query.startAt(value);
+      } else {
+        query = query.startAt(value, key);
+      }
+    } else if ("null".equals(valueType)) {
+      if (key == null) {
+        query = query.startAt(null);
+      } else {
+        query = query.startAt(null, key);
+      }
+    }
+  }
+}

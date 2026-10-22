@@ -1,0 +1,459 @@
+/**
+ * @license
+ * Copyright 2024 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import {
+  Content,
+  GenerateContentRequest,
+  GenerateContentResult,
+  GenerateContentStreamResult,
+  Part,
+  RequestOptions,
+  SingleRequestOptions,
+  StartChatParams,
+  StartTemplateChatParams,
+} from '../types';
+import { formatNewContent } from '../requests/request-helpers';
+import { formatBlockErrorMessage } from '../requests/response-helpers';
+import { validateChatHistory } from './chat-session-helpers';
+import {
+  generateContent,
+  generateContentStream,
+  templateGenerateContent,
+  templateGenerateContentStream,
+} from './generate-content';
+import {
+  generateContentStreamWithAutomaticFunctionCalling,
+  generateContentWithAutomaticFunctionCalling,
+  TemplateAutomaticFunctionCallingRequest,
+  templateGenerateContentStreamWithAutomaticFunctionCalling,
+  templateGenerateContentWithAutomaticFunctionCalling,
+} from './automatic-function-calling';
+import { ApiSettings } from '../types/internal';
+import { logger } from '../logger';
+import { mergeRequestOptions } from '../requests/request-options';
+
+/**
+ * Do not log a message for this error.
+ */
+const SILENT_ERROR = 'SILENT_ERROR';
+
+/**
+ * ChatSession class that enables sending chat messages and stores
+ * history of sent and received messages so far.
+ *
+ * @public
+ */
+export class ChatSessionBase<ParamsType extends { history?: Content[] } = StartChatParams> {
+  protected _history: Content[] = [];
+  protected _sendPromise: Promise<void> = Promise.resolve();
+
+  constructor(
+    public params?: ParamsType,
+    public requestOptions?: RequestOptions,
+  ) {
+    if (params?.history) {
+      validateChatHistory(params.history);
+      this._history = params.history;
+    }
+  }
+
+  /**
+   * Gets the chat history so far. Blocked prompts are not added to history.
+   * Neither blocked candidates nor the prompts that generated them are added
+   * to history.
+   */
+  async getHistory(): Promise<Content[]> {
+    await this._sendPromise;
+    return this._history;
+  }
+}
+
+/**
+ * Interface representing a `ChatSession` that enables sending
+ * chat messages and stores a history of sent and received messages so far.
+ *
+ * @public
+ */
+export interface ChatSession {
+  model: string;
+  params?: StartChatParams;
+  requestOptions?: RequestOptions;
+  /**
+   * Sends a chat message and receives a non-streaming
+   * {@link GenerateContentResult}
+   */
+  sendMessage(
+    request: string | Array<string | Part>,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentResult>;
+  /**
+   * Sends a chat message and receives the response as a
+   * {@link GenerateContentStreamResult} containing an iterable stream
+   * and a response promise.
+   */
+  sendMessageStream(
+    request: string | Array<string | Part>,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentStreamResult>;
+  /**
+   * Gets the chat history so far. Blocked prompts are not added to history.
+   * Neither blocked candidates nor the prompts that generated them are added
+   * to history.
+   */
+  getHistory(): Promise<Content[]>;
+}
+
+/**
+ * ChatSession implementation that enables sending chat messages and stores
+ * history of sent and received messages so far.
+ *
+ * @public
+ */
+export class ChatSessionImpl extends ChatSessionBase<StartChatParams> implements ChatSession {
+  private _apiSettings: ApiSettings;
+
+  constructor(
+    apiSettings: ApiSettings,
+    public model: string,
+    public params?: StartChatParams,
+    public requestOptions?: RequestOptions,
+  ) {
+    super(params, requestOptions);
+    this._apiSettings = apiSettings;
+  }
+
+  /**
+   * Sends a chat message and receives a non-streaming
+   * {@link GenerateContentResult}
+   */
+  async sendMessage(
+    request: string | Array<string | Part>,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentResult> {
+    await this._sendPromise;
+    const newContent = formatNewContent(request);
+    const generateContentRequest: GenerateContentRequest = {
+      safetySettings: this.params?.safetySettings,
+      generationConfig: this.params?.generationConfig,
+      tools: this.params?.tools,
+      toolConfig: this.params?.toolConfig,
+      systemInstruction: this.params?.systemInstruction,
+      contents: [...this._history, newContent],
+    };
+    let finalResult = {} as GenerateContentResult;
+    // Add onto the chain.
+    this._sendPromise = this._sendPromise
+      .then(async () => {
+        const requestOptions = mergeRequestOptions(this.requestOptions, singleRequestOptions);
+        const result = await generateContent(
+          this._apiSettings,
+          this.model,
+          generateContentRequest,
+          requestOptions,
+        );
+        return generateContentWithAutomaticFunctionCalling(
+          this._apiSettings,
+          this.model,
+          generateContentRequest,
+          result,
+          requestOptions,
+        );
+      })
+      .then(({ result, addedContents }) => {
+        if (result.response.candidates && result.response.candidates.length > 0) {
+          this._history.push(newContent);
+          this._history.push(...addedContents);
+          const responseContent: Content = {
+            parts: result.response.candidates?.[0]?.content.parts || [],
+            // Response seems to come back without a role set.
+            role: result.response.candidates?.[0]?.content.role || 'model',
+          };
+          this._history.push(responseContent);
+        } else {
+          const blockErrorMessage = formatBlockErrorMessage(result.response);
+          if (blockErrorMessage) {
+            logger.warn(
+              `sendMessage() was unsuccessful. ${blockErrorMessage}. Inspect response object for details.`,
+            );
+          }
+        }
+        finalResult = result;
+      });
+    await this._sendPromise;
+    return finalResult;
+  }
+
+  /**
+   * Sends a chat message and receives the response as a
+   * {@link GenerateContentStreamResult} containing an iterable stream
+   * and a response promise.
+   */
+  async sendMessageStream(
+    request: string | Array<string | Part>,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentStreamResult> {
+    await this._sendPromise;
+    const newContent = formatNewContent(request);
+    const generateContentRequest: GenerateContentRequest = {
+      safetySettings: this.params?.safetySettings,
+      generationConfig: this.params?.generationConfig,
+      tools: this.params?.tools,
+      toolConfig: this.params?.toolConfig,
+      systemInstruction: this.params?.systemInstruction,
+      contents: [...this._history, newContent],
+    };
+    const requestOptions = mergeRequestOptions(this.requestOptions, singleRequestOptions);
+    const streamPromise = generateContentStream(
+      this._apiSettings,
+      this.model,
+      generateContentRequest,
+      requestOptions,
+    ).then(result =>
+      generateContentStreamWithAutomaticFunctionCalling(
+        this._apiSettings,
+        this.model,
+        generateContentRequest,
+        result,
+        requestOptions,
+      ),
+    );
+
+    // Add onto the chain.
+    this._sendPromise = this._sendPromise
+      .then(() => streamPromise)
+      // This must be handled to avoid unhandled rejection, but jump
+      // to the final catch block with a label to not log this error.
+      .catch(_ignored => {
+        throw new Error(SILENT_ERROR);
+      })
+      .then(({ result, addedContents }) =>
+        result.response.then(response => ({ response, addedContents })),
+      )
+      .then(({ response, addedContents }) => {
+        if (response.candidates && response.candidates.length > 0) {
+          this._history.push(newContent);
+          this._history.push(...addedContents);
+          const responseContent = { ...response.candidates[0]?.content };
+          // Response seems to come back without a role set.
+          if (!responseContent.role) {
+            responseContent.role = 'model';
+          }
+          this._history.push(responseContent as Content);
+        } else {
+          const blockErrorMessage = formatBlockErrorMessage(response);
+          if (blockErrorMessage) {
+            logger.warn(
+              `sendMessageStream() was unsuccessful. ${blockErrorMessage}. Inspect response object for details.`,
+            );
+          }
+        }
+      })
+      .catch(e => {
+        // Errors in streamPromise are already catchable by the user as
+        // streamPromise is returned.
+        // Avoid duplicating the error message in logs.
+        if (e.message !== SILENT_ERROR) {
+          // Users do not have access to _sendPromise to catch errors
+          // downstream from streamPromise, so they should not throw.
+          logger.error(e);
+        }
+      });
+    return (await streamPromise).result;
+  }
+}
+
+/**
+ * Interface representing a `ChatSession` for use with server prompt templates
+ * that enables sending chat messages and stores history of sent and received
+ * messages so far.
+ *
+ * @beta
+ */
+export interface TemplateChatSession {
+  params: StartTemplateChatParams;
+  requestOptions?: RequestOptions;
+  sendMessage(
+    request: string | Array<string | Part>,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentResult>;
+  sendMessageStream(
+    request: string | Array<string | Part>,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentStreamResult>;
+  getHistory(): Promise<Content[]>;
+}
+
+/**
+ * ChatSession implementation for server-side templates that enables sending chat
+ * messages and stores history of sent and received messages so far.
+ *
+ * @beta
+ */
+export class TemplateChatSessionImpl
+  extends ChatSessionBase<StartTemplateChatParams>
+  implements TemplateChatSession
+{
+  private _apiSettings: ApiSettings;
+
+  constructor(
+    apiSettings: ApiSettings,
+    public params: StartTemplateChatParams,
+    public requestOptions?: RequestOptions,
+  ) {
+    super(params, requestOptions);
+    this._apiSettings = apiSettings;
+  }
+
+  /**
+   * Sends a chat message and receives a non-streaming
+   * {@link GenerateContentResult}
+   */
+  async sendMessage(
+    request: string | Array<string | Part>,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentResult> {
+    await this._sendPromise;
+    const newContent = formatNewContent(request);
+    const templateParams = this._buildTemplateChatRequest(newContent);
+    let finalResult = {} as GenerateContentResult;
+    // Add onto the chain.
+    this._sendPromise = this._sendPromise
+      .then(async () => {
+        const requestOptions = mergeRequestOptions(this.requestOptions, singleRequestOptions);
+        const result = await templateGenerateContent(
+          this._apiSettings,
+          this.params.templateId,
+          templateParams,
+          requestOptions,
+        );
+        return templateGenerateContentWithAutomaticFunctionCalling(
+          this._apiSettings,
+          this.params.templateId,
+          templateParams,
+          result,
+          requestOptions,
+        );
+      })
+      .then(({ result, addedContents }) => {
+        if (result.response.candidates && result.response.candidates.length > 0) {
+          this._history.push(newContent);
+          this._history.push(...addedContents);
+          const responseContent: Content = {
+            parts: result.response.candidates?.[0]?.content.parts || [],
+            // Response seems to come back without a role set.
+            role: result.response.candidates?.[0]?.content.role || 'model',
+          };
+          this._history.push(responseContent);
+        } else {
+          const blockErrorMessage = formatBlockErrorMessage(result.response);
+          if (blockErrorMessage) {
+            logger.warn(
+              `sendMessage() was unsuccessful. ${blockErrorMessage}. Inspect response object for details.`,
+            );
+          }
+        }
+        finalResult = result;
+      });
+    await this._sendPromise;
+    return finalResult;
+  }
+
+  /**
+   * Sends a chat message and receives the response as a
+   * {@link GenerateContentStreamResult} containing an iterable stream
+   * and a response promise.
+   */
+  async sendMessageStream(
+    request: string | Array<string | Part>,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentStreamResult> {
+    await this._sendPromise;
+    const newContent = formatNewContent(request);
+    const templateParams = this._buildTemplateChatRequest(newContent);
+    const requestOptions = mergeRequestOptions(this.requestOptions, singleRequestOptions);
+    const streamPromise = templateGenerateContentStream(
+      this._apiSettings,
+      this.params.templateId,
+      templateParams,
+      requestOptions,
+    ).then(result =>
+      templateGenerateContentStreamWithAutomaticFunctionCalling(
+        this._apiSettings,
+        this.params.templateId,
+        templateParams,
+        result,
+        requestOptions,
+      ),
+    );
+
+    // Add onto the chain.
+    this._sendPromise = this._sendPromise
+      .then(() => streamPromise)
+      // This must be handled to avoid unhandled rejection, but jump
+      // to the final catch block with a label to not log this error.
+      .catch(_ignored => {
+        throw new Error(SILENT_ERROR);
+      })
+      .then(({ result, addedContents }) =>
+        result.response.then(response => ({ response, addedContents })),
+      )
+      .then(({ response, addedContents }) => {
+        if (response.candidates && response.candidates.length > 0) {
+          this._history.push(newContent);
+          this._history.push(...addedContents);
+          const responseContent = { ...response.candidates[0]?.content };
+          // Response seems to come back without a role set.
+          if (!responseContent.role) {
+            responseContent.role = 'model';
+          }
+          this._history.push(responseContent as Content);
+        } else {
+          const blockErrorMessage = formatBlockErrorMessage(response);
+          if (blockErrorMessage) {
+            logger.warn(
+              `sendMessageStream() was unsuccessful. ${blockErrorMessage}. Inspect response object for details.`,
+            );
+          }
+        }
+      })
+      .catch(e => {
+        // Errors in streamPromise are already catchable by the user as
+        // streamPromise is returned.
+        // Avoid duplicating the error message in logs.
+        if (e.message !== SILENT_ERROR) {
+          // Users do not have access to _sendPromise to catch errors
+          // downstream from streamPromise, so they should not throw.
+          logger.error(e);
+        }
+      });
+    return (await streamPromise).result;
+  }
+
+  private _buildTemplateChatRequest(newContent: Content): TemplateAutomaticFunctionCallingRequest {
+    return {
+      ...(this.params.templateVariables !== undefined
+        ? { inputs: this.params.templateVariables }
+        : {}),
+      safetySettings: this.params.safetySettings,
+      generationConfig: this.params.generationConfig,
+      tools: this.params.tools,
+      toolConfig: this.params.toolConfig,
+      systemInstruction: this.params.systemInstruction,
+      contents: [...this._history, newContent],
+    };
+  }
+}

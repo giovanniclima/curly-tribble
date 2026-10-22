@@ -1,0 +1,89 @@
+require 'json'
+require_relative './firebase_json'
+require_relative './firebase_spm'
+package = JSON.parse(File.read(File.join(__dir__, 'package.json')))
+firebase_sdk_version = package['sdkVersions']['ios']['firebase']
+firebase_ios_target = package['sdkVersions']['ios']['iosTarget']
+firebase_macos_target = package['sdkVersions']['ios']['macosTarget']
+firebase_tvos_target = package['sdkVersions']['ios']['tvosTarget']
+
+Pod::Spec.new do |s|
+  s.name                = "RNFBApp"
+  s.version             = package["version"]
+  s.description         = package["description"]
+  s.summary             = <<-DESC
+                            A well tested feature rich Firebase implementation for React Native, supporting iOS & Android.
+                          DESC
+  s.homepage            = "http://invertase.io/oss/react-native-firebase"
+  s.license             = package['license']
+  s.authors             = "Invertase Limited"
+  s.source              = { :git => "https://github.com/invertase/react-native-firebase.git", :tag => "v#{s.version}" }
+  s.social_media_url    = 'http://twitter.com/invertaseio'
+  s.ios.deployment_target = firebase_ios_target
+  s.macos.deployment_target = firebase_macos_target
+  s.tvos.deployment_target = firebase_tvos_target
+  s.cocoapods_version   = '>= 1.12.0'
+  s.swift_version       = '5.10'
+  s.source_files        = "ios/**/*.{h,m,mm,cpp,swift}"
+  s.private_header_files = "ios/**/*.h"
+  # CocoaPods FileList uses FNM_PATHNAME: `ios/*UnitTests/**` does not match nested
+  # paths like `ios/RNFBAppUnitTests/HostStubs/**` (those would compile into the pod).
+  # CocoaPods FileList uses FNM_PATHNAME: a trailing `/**` alone does not match
+  # nested files (same reason UnitTests use `/**/*`). Exclude the CI-only local
+  # SPM package so its sources are never compiled into the RNFBApp pod.
+  s.exclude_files       = 'ios/generated/RCTThirdPartyComponentsProvider.*', 'ios/generated/RCTAppDependencyProvider.*', 'ios/generated/RCTModuleProviders.*', 'ios/generated/RCTModulesConformingToProtocolsProvider.*', 'ios/generated/RCTUnstableModulesRequiringMainQueueSetupProvider.*', 'ios/*UnitTests/**/*', 'ios/RNFBFirebase/**/*'
+
+  # Fail fast for old architecture users, but safely in case the variable goes away
+  # completely in future react-native versions
+  if defined?(ENV["RCT_NEW_ARCH_ENABLED"]) != nil && (ENV["RCT_NEW_ARCH_ENABLED"] == '0')
+     raise "#{s.name} requires New Architecture. Enable New Architecture to use this module"
+  end
+
+  # App must define modules for static framework integration of other packages to work.
+  # CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES is required so RNFB's umbrella,
+  # which re-exports <React/...> imports, validates when consumers build with use_frameworks!
+  # (the default on Expo, and required for the firebase-ios-sdk).
+  s.pod_target_xcconfig = {
+    "DEFINES_MODULE" => "YES",
+    "CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES" => "YES",
+  }
+
+  # RNFBUtilsModule+PhotoAssets.m uses PHAsset (Photos.framework) to resolve local asset paths.
+  # Not declaring this explicitly used to work by luck (CocoaPods normally relies on
+  # this declaration -- not Clang autolinking -- to populate OTHER_LDFLAGS), but with
+  # use_frameworks! each pod is a standalone dynamic framework that must resolve its
+  # own symbols at its own link step, so the missing declaration now surfaces as
+  # "Undefined symbols ... _OBJC_CLASS_$_PHAsset". PhotoKit is available on
+  # tvOS 10+, and this .m file emits no Clang autolink record, so tvOS needs
+  # the same explicit link.
+  s.ios.frameworks = 'Photos'
+  s.osx.frameworks = 'Photos'
+  s.tvos.frameworks = 'Photos'
+
+  # React Native dependencies
+  if defined?(install_modules_dependencies()) != nil
+    install_modules_dependencies(s);
+  else
+    s.dependency "React-Core"
+  end
+
+  if (ENV.include?('FIREBASE_SDK_VERSION'))
+    Pod::UI.puts "#{s.name}: Found Firebase SDK version in environment '#{ENV['FIREBASE_SDK_VERSION']}'"
+    $FirebaseSDKVersion = ENV['FIREBASE_SDK_VERSION']
+  end
+
+  if defined?($FirebaseSDKVersion)
+    Pod::UI.puts "#{s.name}: Using user specified Firebase SDK version '#{$FirebaseSDKVersion}'"
+    firebase_sdk_version = $FirebaseSDKVersion
+  end
+
+  # Firebase dependencies
+  firebase_dependency(s, firebase_sdk_version, ['FirebaseCore', 'FirebaseInstallations'], 'Firebase/CoreOnly')
+
+  if defined?($RNFirebaseAsStaticFramework)
+    Pod::UI.puts "#{s.name}: Using overridden static_framework value of '#{$RNFirebaseAsStaticFramework}'"
+    s.static_framework = $RNFirebaseAsStaticFramework
+  else
+    s.static_framework = false
+  end
+end

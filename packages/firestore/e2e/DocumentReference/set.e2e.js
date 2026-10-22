@@ -1,0 +1,279 @@
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+const { wipe } = require('../helpers');
+const COLLECTION = 'firestore';
+
+describe('firestore.doc().set()', function () {
+  before(function () {
+    return wipe();
+  });
+
+  describe('modular', function () {
+    it('throws if data is not an object', function () {
+      const { getFirestore, doc, setDoc } = firestoreModular;
+      try {
+        setDoc(doc(getFirestore(), `${COLLECTION}/baz`), 'foo');
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql("'data' must be an object");
+        return Promise.resolve();
+      }
+    });
+
+    it('throws if options is not an object', function () {
+      const { getFirestore, doc, setDoc } = firestoreModular;
+      try {
+        setDoc(doc(getFirestore(), `${COLLECTION}/baz`), {}, 'foo');
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql("'options' must be an object");
+        return Promise.resolve();
+      }
+    });
+
+    it('throws if options contains both merge types', function () {
+      const { getFirestore, doc, setDoc } = firestoreModular;
+      try {
+        setDoc(
+          doc(getFirestore(), `${COLLECTION}/baz`),
+          {},
+          {
+            merge: true,
+            mergeFields: [],
+          },
+        );
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql("'options' must not contain both 'merge' & 'mergeFields'");
+        return Promise.resolve();
+      }
+    });
+
+    it('throws if merge is not a boolean', function () {
+      const { getFirestore, doc, setDoc } = firestoreModular;
+      try {
+        setDoc(
+          doc(getFirestore(), `${COLLECTION}/baz`),
+          {},
+          {
+            merge: 'foo',
+          },
+        );
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql("'options.merge' must be a boolean value");
+        return Promise.resolve();
+      }
+    });
+
+    it('throws if mergeFields is not an array', function () {
+      const { getFirestore, doc, setDoc } = firestoreModular;
+      try {
+        setDoc(
+          doc(getFirestore(), `${COLLECTION}/baz`),
+          {},
+          {
+            mergeFields: 'foo',
+          },
+        );
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql("'options.mergeFields' must be an array");
+        return Promise.resolve();
+      }
+    });
+
+    it('throws if mergeFields contains invalid data', function () {
+      const { getFirestore, doc, setDoc, FieldPath } = firestoreModular;
+      try {
+        setDoc(
+          doc(getFirestore(), `${COLLECTION}/baz`),
+          {},
+          {
+            mergeFields: ['foo', 'foo.bar', new FieldPath(COLLECTION, 'baz'), 123],
+          },
+        );
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql(
+          "'options.mergeFields' all fields must be of type string or FieldPath, but the value at index 3 was number",
+        );
+        return Promise.resolve();
+      }
+    });
+
+    it('sets new data', async function () {
+      const { getFirestore, doc, setDoc, getDoc, deleteDoc } = firestoreModular;
+      const ref = doc(getFirestore(), `${COLLECTION}/set`);
+      const data1 = { foo: 'bar' };
+      const data2 = { foo: 'baz', bar: 123 };
+      await setDoc(ref, data1);
+      const snapshot1 = await getDoc(ref);
+      snapshot1.data().should.eql(jet.contextify(data1));
+      await setDoc(ref, data2);
+      const snapshot2 = await getDoc(ref);
+      snapshot2.data().should.eql(jet.contextify(data2));
+      await deleteDoc(ref);
+    });
+
+    it('merges all fields', async function () {
+      const { getFirestore, doc, setDoc, getDoc, deleteDoc } = firestoreModular;
+      const ref = doc(getFirestore(), `${COLLECTION}/merge`);
+      const data1 = { foo: 'bar' };
+      const data2 = { bar: 'baz' };
+      const merged = { ...data1, ...data2 };
+      await setDoc(ref, data1);
+      const snapshot1 = await getDoc(ref);
+      snapshot1.data().should.eql(jet.contextify(data1));
+      await setDoc(ref, data2, {
+        merge: true,
+      });
+      const snapshot2 = await getDoc(ref);
+      snapshot2.data().should.eql(jet.contextify(merged));
+      await deleteDoc(ref);
+    });
+
+    it('merges specific fields', async function () {
+      const { getFirestore, doc, setDoc, getDoc, deleteDoc, FieldPath } = firestoreModular;
+      const ref = doc(getFirestore(), `${COLLECTION}/merge`);
+      const data1 = { foo: '123', bar: 123, baz: '456' };
+      const data2 = { foo: '234', bar: 234, baz: '678' };
+      const merged = { foo: data1.foo, bar: data2.bar, baz: data2.baz };
+      await setDoc(ref, data1);
+      const snapshot1 = await getDoc(ref);
+      snapshot1.data().should.eql(jet.contextify(data1));
+      await setDoc(ref, data2, {
+        mergeFields: ['bar', new FieldPath('baz')],
+      });
+      const snapshot2 = await getDoc(ref);
+      snapshot2.data().should.eql(jet.contextify(merged));
+      await deleteDoc(ref);
+    });
+
+    it('throws when nested undefined array value provided and ignored undefined is false', async function () {
+      const { getFirestore, initializeFirestore, doc, setDoc } = firestoreModular;
+      const db = getFirestore();
+      initializeFirestore(db.app, { ignoreUndefinedProperties: false });
+      const docRef = doc(db, `${COLLECTION}/bar`);
+      try {
+        await setDoc(docRef, {
+          myArray: [{ name: 'Tim', location: { state: undefined, country: 'United Kingdom' } }],
+        });
+        return Promise.reject(new Error('Expected set() to throw'));
+      } catch (error) {
+        error.message.should.containEql('Unsupported field value: undefined');
+      }
+    });
+
+    it('accepts undefined nested array values if ignoreUndefined is true', async function () {
+      // TODO(ehesp): Figure out how to call settings multiple times on modular SDK.
+      if (Platform.other) {
+        return;
+      }
+
+      const { getFirestore, initializeFirestore, doc, setDoc } = firestoreModular;
+      const db = getFirestore();
+      initializeFirestore(db.app, { ignoreUndefinedProperties: true });
+      const docRef = doc(db, `${COLLECTION}/bar`);
+      await setDoc(docRef, {
+        myArray: [{ name: 'Tim', location: { state: undefined, country: 'United Kingdom' } }],
+      });
+    });
+
+    it('does not throw when nested undefined object value provided and ignore undefined is true', async function () {
+      // TODO(ehesp): Figure out how to call settings multiple times on modular SDK.
+      if (Platform.other) {
+        return;
+      }
+
+      const { getFirestore, initializeFirestore, doc, setDoc } = firestoreModular;
+      const db = getFirestore();
+      initializeFirestore(db.app, { ignoreUndefinedProperties: true });
+      const docRef = doc(db, `${COLLECTION}/bar`);
+      await setDoc(docRef, {
+        field1: 1,
+        field2: {
+          shouldNotWork: undefined,
+        },
+      });
+    });
+
+    it('filters out undefined properties when setting enabled', async function () {
+      // TODO(ehesp): Figure out how to call settings multiple times on modular SDK.
+      if (Platform.other) {
+        return;
+      }
+
+      const { getFirestore, initializeFirestore, doc, setDoc, getDoc } = firestoreModular;
+      const db = getFirestore();
+      initializeFirestore(db.app, { ignoreUndefinedProperties: true });
+
+      const docRef = doc(db, `${COLLECTION}/ignoreUndefinedTrueProp`);
+      await setDoc(docRef, {
+        field1: 1,
+        field2: undefined,
+      });
+
+      const snap = await getDoc(docRef);
+      const snapData = snap.data();
+      if (!snapData) {
+        return Promise.reject(new Error('Snapshot not saved'));
+      }
+
+      snapData.field1.should.eql(1);
+      snapData.hasOwnProperty('field2').should.eql(false);
+    });
+
+    it('filters out nested undefined properties when setting enabled', async function () {
+      // TODO(ehesp): Figure out how to call settings multiple times on modular SDK.
+      if (Platform.other) {
+        return;
+      }
+
+      const { getFirestore, initializeFirestore, doc, setDoc, getDoc } = firestoreModular;
+      const db = getFirestore();
+      initializeFirestore(db.app, { ignoreUndefinedProperties: true });
+
+      const docRef = doc(db, `${COLLECTION}/ignoreUndefinedTrueNestedProp`);
+      await setDoc(docRef, {
+        field1: 1,
+        field2: {
+          shouldBeMissing: undefined,
+        },
+        field3: [
+          {
+            shouldBeHere: 'Here',
+            shouldBeMissing: undefined,
+          },
+        ],
+      });
+
+      const snap = await getDoc(docRef);
+      const snapData = snap.data();
+      if (!snapData) {
+        return Promise.reject(new Error('Snapshot not saved'));
+      }
+
+      snapData.field1.should.eql(1);
+      snapData.hasOwnProperty('field2').should.eql(true);
+      snapData.field2.hasOwnProperty('shouldBeMissing').should.eql(false);
+      snapData.hasOwnProperty('field3').should.eql(true);
+      snapData.field3[0].shouldBeHere.should.eql('Here');
+      snapData.field3[0].hasOwnProperty('shouldBeMissing').should.eql(false);
+    });
+  });
+});

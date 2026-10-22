@@ -1,0 +1,75 @@
+/**
+ * @license
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { describe, it, expect } from '@jest/globals';
+import { AgentPlatformBackend, GoogleAIBackend } from '../lib/backend';
+import { BackendType } from '../lib/public-types';
+import { DEFAULT_LOCATION } from '../lib/constants';
+
+describe('Backend', () => {
+  describe('GoogleAIBackend', () => {
+    it('should set backendType to GOOGLE_AI', () => {
+      const backend = new GoogleAIBackend();
+      expect(backend.backendType).toBe(BackendType.GOOGLE_AI);
+    });
+
+    it('builds model and template paths without location', () => {
+      const backend = new GoogleAIBackend();
+      expect(backend._getModelPath('my-project', 'models/gemini')).toBe(
+        '/v1beta/projects/my-project/models/gemini',
+      );
+      expect(backend._getTemplatePath('my-project', 'tmpl')).toBe(
+        '/v1beta/projects/my-project/templates/tmpl',
+      );
+    });
+  });
+
+  describe('AgentPlatformBackend', () => {
+    it('should set backendType to AGENT_PLATFORM with global default', () => {
+      const backend = new AgentPlatformBackend();
+      expect(backend.backendType).toBe(BackendType.AGENT_PLATFORM);
+      expect(backend.location).toBe(DEFAULT_LOCATION);
+    });
+
+    it('should set a custom location', () => {
+      const backend = new AgentPlatformBackend('test-location');
+      expect(backend.backendType).toBe(BackendType.AGENT_PLATFORM);
+      expect(backend.location).toBe('test-location');
+    });
+
+    it('should use a default location if location is empty string', () => {
+      const backend = new AgentPlatformBackend('');
+      expect(backend.backendType).toBe(BackendType.AGENT_PLATFORM);
+      expect(backend.location).toBe(DEFAULT_LOCATION);
+    });
+
+    it('uses default location if location is null', () => {
+      const backend = new AgentPlatformBackend(null as any);
+      expect(backend.backendType).toBe(BackendType.AGENT_PLATFORM);
+      expect(backend.location).toBe(DEFAULT_LOCATION);
+    });
+
+    it('builds model and template paths with location', () => {
+      const backend = new AgentPlatformBackend('europe-west1');
+      expect(backend._getModelPath('my-project', 'models/gemini')).toBe(
+        '/v1beta/projects/my-project/locations/europe-west1/models/gemini',
+      );
+      expect(backend._getTemplatePath('my-project', 'tmpl')).toBe(
+        '/v1beta/projects/my-project/locations/europe-west1/templates/tmpl',
+      );
+    });
+  });
+});

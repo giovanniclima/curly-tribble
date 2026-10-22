@@ -1,0 +1,56 @@
+---
+title: TypeScript
+description: Using TypeScript with React Native Firebase
+next: /platforms
+previous: /migrating-to-v27
+---
+
+React Native Firebase ships TypeScript declarations for every module. From v25 onward, modular types and helpers are exported from each package root (for example `@react-native-firebase/auth`) alongside the namespaced default export.
+
+If you are setting up TypeScript in a new React Native app, see the official [TypeScript documentation](https://reactnative.dev/docs/typescript).
+
+## Modular API
+
+Import modular helpers and types from the package root:
+
+```tsx
+import { useEffect, useState } from 'react';
+import { getAuth, onAuthStateChanged, type User } from '@react-native-firebase/auth';
+
+function App() {
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const authInstance = getAuth();
+    return onAuthStateChanged(authInstance, setUser);
+  }, []);
+
+  if (!user) {
+    return null;
+  }
+
+  return user.email;
+}
+```
+
+See [Migrating to v25](/migrating-to-v25) for Auth breaking changes (`FirebaseAuthTypes` deprecation, provider helpers, async `isSignInWithEmailLink`, and other firebase-js-sdk alignment updates).
+
+## Where definitions live
+
+Published types are built to `packages/<module>/dist/typescript/` (for example `packages/auth/dist/typescript/lib/index.d.ts`). Source lives under `packages/<module>/lib/` as TypeScript (`.ts`) since the v25 package migrations.
+
+Modular Auth source: [`packages/auth/lib/index.ts`](https://github.com/invertase/react-native-firebase/blob/main/packages/auth/lib/index.ts).
+
+Public API reference (generated from source JSDoc): [reference API](https://reference.rnfirebase.io/modules.html).
+
+## Definitions per module
+
+Each package exports its own types from the package root. Examples:
+
+| Module    | Modular types (import from package root)                                                                  |
+| --------- | --------------------------------------------------------------------------------------------------------- |
+| Auth      | `User`, `Auth`, `UserCredential`, `OAuthProvider`, …                                                      |
+| Firestore | `FirebaseFirestoreTypes` namespace (namespaced) + modular helpers from `@react-native-firebase/firestore` |
+| App Check | `AppCheck`, `AppCheckTokenResult`, …                                                                      |
+
+For Auth v25 alignment details and intentional firebase-js-sdk differences, see the [Auth compare:types triage](https://github.com/invertase/react-native-firebase/blob/main/okf-bundle/packages/auth/compare-types-triage.md) knowledge document and [`yarn compare:types auth`](https://github.com/invertase/react-native-firebase/blob/main/.github/scripts/compare-types/configs/auth.ts) registry.

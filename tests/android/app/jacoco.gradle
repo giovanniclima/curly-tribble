@@ -1,0 +1,171 @@
+import groovy.transform.Memoized
+
+apply plugin: 'jacoco'
+
+jacoco {
+    toolVersion = '0.8.14'
+}
+
+android {
+    jacoco {
+        version = '0.8.14'
+    }
+}
+
+@Memoized
+Properties getLocalProperties() {
+    final propertiesFile = project.rootProject.file('local.properties')
+
+    final properties = new Properties()
+
+    if (propertiesFile.exists()) {
+        properties.load(propertiesFile.newDataInputStream())
+    }
+
+    return properties
+}
+
+def openReport(htmlOutDir) {
+    final reportPath = "$htmlOutDir/index.html"
+
+    println "HTML Report: $reportPath"
+
+    if (!project.hasProperty('open-report')) {
+        println "to open the report automatically in your default browser add '-Popen-report' cli argument"
+        return
+    }
+
+    def os = org.gradle.internal.os.OperatingSystem.current()
+    if (os.isWindows()) {
+        exec { commandLine 'cmd', '/c', "start $reportPath" }
+    } else if (os.isMacOsX()) {
+        exec { commandLine 'open', "$reportPath" }
+    } else if (os.isLinux()) {
+        try {
+            exec { commandLine 'xdg-open', "$reportPath" }
+        } catch (Exception ignored) {
+            if (localProperties.containsKey('linux-html-cmd')) {
+                exec { commandLine properties.get('linux-html-cmd'), "$reportPath" }
+            } else {
+                println "'linux-html-cmd' property could not be found in 'local.properties'"
+            }
+        }
+    }
+}
+
+tasks.withType(Test) {
+    jacoco.includeNoLocationClasses = true
+    jacoco.excludes = ['jdk.internal.*']
+}
+
+def configureRnfbJacocoSourcesAndClasses(JacocoReport reportTask) {
+    def classFileFilter = [
+        '**/R.class',
+        '**/R$*.class',
+        '**/BuildConfig.*',
+        '**/Manifest*.*',
+        '**/*Test*.*',
+        'android/**/*.*',
+    ]
+    def classFiles = []
+    def srcFiles = []
+
+    rootProject.ext.firebaseModulePaths.forEach { projectPath ->
+        classFiles << fileTree(
+            dir: "$projectPath/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes",
+            excludes: classFileFilter,
+        )
+        classFiles << fileTree(
+            dir: "$projectPath/build/tmp/kotlin-classes/debug",
+            excludes: classFileFilter,
+        )
+        srcFiles << "$projectPath/src/main/java"
+        def reactNativeSrc = file("$projectPath/src/reactnative/java")
+        if (reactNativeSrc.exists()) {
+            srcFiles << reactNativeSrc
+        }
+    }
+
+    reportTask.sourceDirectories.from = files(srcFiles)
+    reportTask.classDirectories.from = files(classFiles)
+}
+
+def rnfbJacocoExecutionData(List<String> includes) {
+    def executionTrees = [fileTree(dir: project.buildDir, includes: includes)]
+    rootProject.ext.firebaseModulePaths.forEach { projectPath ->
+        executionTrees << fileTree(dir: "$projectPath/build", includes: includes)
+    }
+    return files(executionTrees)
+}
+
+def configureJacocoReportTask(JacocoReport reportTask) {
+    def htmlOutDir = layout.buildDirectory.dir("reports/jacoco/${reportTask.name}/html").get().asFile
+
+    reportTask.doLast {
+        openReport htmlOutDir
+    }
+
+    reportTask.reports {
+        xml.required = true
+        html.outputLocation = htmlOutDir
+    }
+
+    configureRnfbJacocoSourcesAndClasses(reportTask)
+}
+
+// Library JVM .exec files come from :react-native-firebase_*:testDebugUnitTest
+// (Jacoco plugin → build/jacoco/*.exec). Do not dependOn :app:testDebugUnitTest —
+// that task is hollow and produces no RNFB coverage. See tests/android/build.gradle
+// (enableAndroidTestCoverage for e2e .ec; Jacoco plugin for unit .exec).
+//
+// Only modules that ship sources under src/test (today: packages/app). Gradle 9 +
+// AGP 8.13 failOnNoDiscoveredTests when testOptions.unitTests.includeAndroidResources
+// is on but no tests exist — empty modules (analytics, app-check, …) would abort CI.
+def rnfbModuleHasJvmUnitTests(project) {
+    def testRoot = new File(project.projectDir, 'src/test')
+    if (!testRoot.exists()) {
+        return false
+    }
+    def hasTests = false
+    testRoot.eachFileRecurse { file ->
+        if (file.name.endsWith('.java') || file.name.endsWith('.kt')) {
+            hasTests = true
+        }
+    }
+    return hasTests
+}
+
+def rnfbDebugUnitTestTaskPaths() {
+    return rootProject.subprojects
+        .findAll { proj -> rootProject.ext.coverageLibraryProjectMatchers.any { matcher -> proj.name.contains(matcher) } }
+        .findAll { rnfbModuleHasJvmUnitTests(it) }
+        .collect { "${it.path}:testDebugUnitTest" }
+}
+
+// Allowlisted via yarn tests:android:unit — RNFB modules that ship src/test JVM tests.
+task rnfbDebugUnitTests {
+    group = 'verification'
+    description = 'Run debug JVM unit tests for react-native-firebase Android modules that ship src/test'
+    dependsOn { rnfbDebugUnitTestTaskPaths() }
+}
+
+// Unit + e2e (Detox) merged report. E2e coverage is pulled to build/output/coverage/*.ec
+// after Detox; unit tests produce *.exec under each module's build/.
+task jacocoTestReport(type: JacocoReport) {
+    dependsOn { rnfbDebugUnitTestTaskPaths() }
+    configureJacocoReportTask(it)
+    executionData.from = rnfbJacocoExecutionData(['**/*.exec', '**/*.ec'])
+}
+
+// Unit-test only report (*.exec from RNFB library modules).
+task jacocoUnitTestReport(type: JacocoReport) {
+    dependsOn { rnfbDebugUnitTestTaskPaths() }
+    configureJacocoReportTask(it)
+    executionData.from = rnfbJacocoExecutionData(['**/*.exec'])
+}
+
+// Detox e2e report (connected instrumentation is not used — coverage.ec is dumped from the app).
+task jacocoAndroidTestReport(type: JacocoReport) {
+    configureJacocoReportTask(it)
+    executionData.from = rnfbJacocoExecutionData(['**/*.ec'])
+}

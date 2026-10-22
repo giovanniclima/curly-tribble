@@ -1,0 +1,6 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["lib/index.ts", "lib/types/functions.ts"],
+  "tsconfig": "tsconfig.json",
+  "intentionallyNotExported": ["NativeError"]
+}

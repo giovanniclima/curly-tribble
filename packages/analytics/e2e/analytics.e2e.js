@@ -1,0 +1,876 @@
+/*
+ * Copyright (c) 2016-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+describe('analytics()', function () {
+  // Probe session ID before any other analytics API usage (including suite beforeEach).
+  // Namespace APIs not tested here as only one set can run reliably, and modular-only is the future state.
+  describe('getSessionId() [modular — runs before all other analytics tests]', function () {
+    it('calls native fn without error', async function () {
+      const { getAnalytics, getSessionId } = analyticsModular;
+      await getSessionId(getAnalytics());
+    });
+
+    it('returns a non empty session ID', async function () {
+      if (Platform.other) {
+        this.skip();
+      }
+      const { getAnalytics, getSessionId } = analyticsModular;
+      // Native getSessionId can take up to ~60s before resolving null (iOS/Android
+      // bridge timeouts). Cap retries the same locally and on CI: a long local
+      // loop (formerly 240) outlives the Jet orchestrator and looks like a hang.
+      const maxAttempts = 4; // 1 initial + 3 retries (matches prior CI budget)
+      const startedAt = Date.now();
+      let sessionId = null;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const attemptStartedAt = Date.now();
+        sessionId = await getSessionId(getAnalytics());
+        const attemptMs = Date.now() - attemptStartedAt;
+        const totalMs = Date.now() - startedAt;
+        // eslint-disable-next-line no-console
+        console.log(
+          `[rnfb-e2e] analytics getSessionId attempt=${attempt}/${maxAttempts} ` +
+            `sessionId=${sessionId === null || sessionId === undefined ? String(sessionId) : sessionId} ` +
+            `attemptMs=${attemptMs} totalMs=${totalMs}`,
+        );
+        if (sessionId) {
+          break;
+        }
+        if (attempt < maxAttempts) {
+          await Utils.sleep(1000);
+        }
+      }
+
+      // iOS simulator session-ID readiness is flaky; skip rather than fail.
+      // Keep prior CI skip for all platforms; Android local stays fail-loud.
+      if (!sessionId) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[rnfb-e2e] analytics getSessionId giving up after ${maxAttempts} attempts ` +
+            `(totalMs=${Date.now() - startedAt}); platform=${Platform.ios ? 'ios' : 'android'} isCI=${!!global.isCI}`,
+        );
+        if (Platform.ios || global.isCI) {
+          this.skip();
+          return;
+        }
+        return Promise.reject(
+          new Error(
+            `Firebase SDK did not return a session ID after ${maxAttempts} attempts ` +
+              `(totalMs=${Date.now() - startedAt})`,
+          ),
+        );
+      }
+
+      sessionId.should.not.equal(0);
+    });
+
+    it('returns a null value if session expires', async function () {
+      if (Platform.ios) {
+        // TODO - 20251030 iOS no longer correctly expires sessions
+        this.skip();
+      }
+      const { getAnalytics, getSessionId, setSessionTimeoutDuration } = analyticsModular;
+
+      // Set session duration to 1 millisecond
+      setSessionTimeoutDuration(getAnalytics(), 1);
+      // Wait 100 millisecond to ensure session expires
+      await Utils.sleep(100);
+      const sessionId = await getSessionId(getAnalytics());
+      should.equal(sessionId, null);
+    });
+  });
+
+  describe('modular', function () {
+    beforeEach(async function () {
+      const { getAnalytics, logEvent } = analyticsModular;
+      await logEvent(getAnalytics(), 'screen_view');
+    });
+
+    describe('getAnalytics', function () {
+      it('pass app as argument', function () {
+        const { getApp } = modular;
+        const { getAnalytics } = analyticsModular;
+
+        const analytics = getAnalytics(getApp());
+
+        analytics.constructor.name.should.be.equal('FirebaseAnalyticsModule');
+      });
+
+      it('no app as argument', function () {
+        const { getAnalytics } = analyticsModular;
+
+        const analytics = getAnalytics();
+
+        analytics.constructor.name.should.be.equal('FirebaseAnalyticsModule');
+      });
+    });
+
+    describe('logEvent()', function () {
+      it('log an event without parameters', async function () {
+        const { getAnalytics, logEvent } = analyticsModular;
+        await logEvent(getAnalytics(), 'invertase_event');
+      });
+
+      it('log an event with parameters', async function () {
+        const { getAnalytics, logEvent } = analyticsModular;
+        await logEvent(getAnalytics(), 'invertase_event', {
+          boolean: true,
+          number: 1,
+          string: 'string',
+        });
+      });
+    });
+
+    describe('deprecated helper events', function () {
+      describe('logScreenView()', function () {
+        it('calls logScreenView', async function () {
+          const { getAnalytics, logScreenView } = analyticsModular;
+          await logScreenView(getAnalytics(), {
+            screen_name: 'invertase screen',
+            screen_class: 'invertase class',
+          });
+        });
+      });
+
+      describe('logAddPaymentInfo()', function () {
+        it('calls logAddPaymentInfo', async function () {
+          const { getAnalytics, logAddPaymentInfo } = analyticsModular;
+          await logAddPaymentInfo(getAnalytics(), {
+            value: 123,
+            currency: 'USD',
+            items: [],
+          });
+        });
+      });
+
+      describe('logAddToCart()', function () {
+        it('calls logAddToCart', async function () {
+          const { getAnalytics, logAddToCart } = analyticsModular;
+          await logAddToCart(getAnalytics(), {
+            value: 123,
+            currency: 'GBP',
+          });
+        });
+      });
+
+      describe('logAddShippingInfo()', function () {
+        it('calls logAddShippingInfo', async function () {
+          const { getAnalytics, logAddShippingInfo } = analyticsModular;
+          await logAddShippingInfo(getAnalytics(), {
+            value: 123,
+            currency: 'GBP',
+          });
+        });
+      });
+
+      describe('logAddToWishlist()', function () {
+        it('calls logAddToWishlist', async function () {
+          const { getAnalytics, logAddToWishlist } = analyticsModular;
+          await logAddToWishlist(getAnalytics(), {
+            items: [
+              {
+                item_id: 'foo',
+                item_name: 'foo',
+                item_category: 'foo',
+                item_location_id: 'foo',
+                quantity: 5,
+              },
+            ],
+            value: 123,
+            currency: 'GBP',
+          });
+        });
+      });
+
+      describe('logAppOpen()', function () {
+        it('calls logAppOpen', async function () {
+          const { getAnalytics, logAppOpen } = analyticsModular;
+          await logAppOpen(getAnalytics());
+        });
+      });
+
+      describe('logBeginCheckout()', function () {
+        it('calls logBeginCheckout', async function () {
+          const { getAnalytics, logBeginCheckout } = analyticsModular;
+          await logBeginCheckout(getAnalytics());
+        });
+      });
+
+      describe('logCampaignDetails()', function () {
+        it('calls logCampaignDetails', async function () {
+          const { getAnalytics, logCampaignDetails } = analyticsModular;
+          await logCampaignDetails(getAnalytics(), {
+            source: 'foo',
+            medium: 'bar',
+            campaign: 'baz',
+          });
+        });
+      });
+
+      describe('logEarnVirtualCurrency()', function () {
+        it('calls logEarnVirtualCurrency', async function () {
+          const { getAnalytics, logEarnVirtualCurrency } = analyticsModular;
+          await logEarnVirtualCurrency(getAnalytics(), {
+            virtual_currency_name: 'foo',
+            value: 123,
+          });
+        });
+      });
+
+      describe('logPurchase()', function () {
+        it('calls logPurchase', async function () {
+          const { getAnalytics, logPurchase } = analyticsModular;
+          await logPurchase(getAnalytics(), {
+            currency: 'USD',
+            value: 123,
+            affiliation: 'affiliation',
+          });
+        });
+      });
+
+      describe('logViewPromotion()', function () {
+        it('calls logViewPromotion', async function () {
+          const { getAnalytics, logViewPromotion } = analyticsModular;
+          await logViewPromotion(getAnalytics(), {
+            creative_name: 'creative_name',
+            creative_slot: 'creative_slot',
+          });
+        });
+      });
+
+      describe('logGenerateLead()', function () {
+        it('calls logGenerateLead', async function () {
+          const { getAnalytics, logGenerateLead } = analyticsModular;
+          await logGenerateLead(getAnalytics(), {
+            currency: 'USD',
+            value: 123,
+          });
+        });
+      });
+
+      describe('logJoinGroup()', function () {
+        it('calls logJoinGroup', async function () {
+          const { getAnalytics, logJoinGroup } = analyticsModular;
+          await logJoinGroup(getAnalytics(), {
+            group_id: '123',
+          });
+        });
+      });
+
+      describe('logLevelEnd()', function () {
+        it('calls logLevelEnd', async function () {
+          const { getAnalytics, logLevelEnd } = analyticsModular;
+          await logLevelEnd(getAnalytics(), {
+            level: 123,
+            success: true,
+          });
+        });
+      });
+
+      describe('logLevelStart()', function () {
+        it('calls logLevelEnd', async function () {
+          const { getAnalytics, logLevelStart } = analyticsModular;
+          await logLevelStart(getAnalytics(), {
+            level: 123,
+          });
+        });
+      });
+
+      describe('logLevelUp()', function () {
+        it('calls logLevelUp', async function () {
+          const { getAnalytics, logLevelUp } = analyticsModular;
+          await logLevelUp(getAnalytics(), {
+            level: 123,
+            character: 'foo',
+          });
+        });
+      });
+
+      describe('logLogin()', function () {
+        it('calls logLogin', async function () {
+          const { getAnalytics, logLogin } = analyticsModular;
+          await logLogin(getAnalytics(), {
+            method: 'facebook.com',
+          });
+        });
+      });
+
+      describe('logPostScore()', function () {
+        it('calls logPostScore', async function () {
+          const { getAnalytics, logPostScore } = analyticsModular;
+          await logPostScore(getAnalytics(), {
+            score: 123,
+          });
+        });
+      });
+
+      describe('logRemoveFromCart()', function () {
+        it('calls logRemoveFromCart', async function () {
+          const { getAnalytics, logRemoveFromCart } = analyticsModular;
+          await logRemoveFromCart(getAnalytics(), {
+            value: 123,
+            currency: 'USD',
+          });
+        });
+      });
+
+      describe('logSearch()', function () {
+        it('calls logSearch', async function () {
+          const { getAnalytics, logSearch } = analyticsModular;
+          await logSearch(getAnalytics(), {
+            search_term: 'foo',
+          });
+        });
+      });
+
+      describe('logSetCheckoutOption()', function () {
+        it('calls logSelectContent', async function () {
+          const { getAnalytics, logSetCheckoutOption } = analyticsModular;
+          await logSetCheckoutOption(getAnalytics(), {
+            checkout_step: 123,
+            checkout_option: 'foo',
+          });
+        });
+      });
+
+      describe('logSelectItem()', function () {
+        it('calls logSelectItem', async function () {
+          const { getAnalytics, logSelectItem } = analyticsModular;
+          await logSelectItem(getAnalytics(), {
+            item_list_id: 'foo',
+            item_list_name: 'foo',
+            content_type: 'foo',
+          });
+        });
+      });
+
+      describe('logShare()', function () {
+        it('calls logShare', async function () {
+          const { getAnalytics, logShare } = analyticsModular;
+          await logShare(getAnalytics(), {
+            content_type: 'foo',
+            item_id: 'foo',
+            method: 'foo',
+          });
+        });
+      });
+
+      describe('logSignUp()', function () {
+        it('calls logSignUp', async function () {
+          const { getAnalytics, logSignUp } = analyticsModular;
+          await logSignUp(getAnalytics(), {
+            method: 'facebook.com',
+          });
+        });
+      });
+
+      describe('logSpendVirtualCurrency()', function () {
+        it('calls logSpendVirtualCurrency', async function () {
+          const { getAnalytics, logSpendVirtualCurrency } = analyticsModular;
+          await logSpendVirtualCurrency(getAnalytics(), {
+            item_name: 'foo',
+            virtual_currency_name: 'foo',
+            value: 123,
+          });
+        });
+      });
+
+      describe('logTutorialBegin()', function () {
+        it('calls logTutorialBegin', async function () {
+          const { getAnalytics, logTutorialBegin } = analyticsModular;
+          await logTutorialBegin(getAnalytics());
+        });
+      });
+
+      describe('logTutorialComplete()', function () {
+        it('calls logTutorialComplete', async function () {
+          const { getAnalytics, logTutorialComplete } = analyticsModular;
+          await logTutorialComplete(getAnalytics());
+        });
+      });
+
+      describe('logUnlockAchievement()', function () {
+        it('calls logUnlockAchievement', async function () {
+          const { getAnalytics, logUnlockAchievement } = analyticsModular;
+          await logUnlockAchievement(getAnalytics(), {
+            achievement_id: 'foo',
+          });
+        });
+      });
+
+      describe('logViewCart()', function () {
+        it('calls logViewCart', async function () {
+          const { getAnalytics, logViewCart } = analyticsModular;
+          await logViewCart(getAnalytics());
+        });
+      });
+
+      describe('logViewItem()', function () {
+        it('calls logViewItem', async function () {
+          const { getAnalytics, logViewItem } = analyticsModular;
+          await logViewItem(getAnalytics(), {
+            items: [
+              {
+                item_id: 'foo',
+                item_name: 'foo',
+                item_category: 'foo',
+                item_location_id: 'foo',
+              },
+            ],
+            value: 123,
+            currency: 'GBP',
+          });
+        });
+      });
+
+      describe('logViewItemList()', function () {
+        it('calls logViewItemList', async function () {
+          const { getAnalytics, logViewItemList } = analyticsModular;
+          await logViewItemList(getAnalytics(), {
+            item_list_name: 'foo',
+            items: [
+              {
+                item_id: 'foo',
+                item_name: 'foo',
+                item_category: 'foo',
+                item_location_id: 'foo',
+                price: 123,
+              },
+            ],
+          });
+        });
+      });
+
+      describe('logRefund()', function () {
+        it('calls logRefund', async function () {
+          const { getAnalytics, logRefund } = analyticsModular;
+          await logRefund(getAnalytics(), {
+            affiliation: 'affiliation',
+            coupon: 'coupon',
+          });
+        });
+      });
+
+      describe('logSelectContent()', function () {
+        it('calls logSelectContent', async function () {
+          const { getAnalytics, logSelectContent } = analyticsModular;
+          await logSelectContent(getAnalytics(), {
+            content_type: 'clothing',
+            item_id: 'abcd',
+          });
+        });
+      });
+
+      describe('logSelectPromotion()', function () {
+        it('calls logSelectPromotion', async function () {
+          const { getAnalytics, logSelectPromotion } = analyticsModular;
+          await logSelectPromotion(getAnalytics(), {
+            creative_name: 'string',
+            creative_slot: 'string',
+            location_id: 'string',
+            promotion_id: 'string',
+            promotion_name: 'string',
+          });
+        });
+      });
+
+      describe('logViewSearchResults()', function () {
+        it('calls logViewSearchResults', async function () {
+          const { getAnalytics, logViewSearchResults } = analyticsModular;
+          await logViewSearchResults(getAnalytics(), {
+            search_term: 'promotion',
+          });
+        });
+      });
+    });
+
+    describe('setSessionTimeoutDuration()', function () {
+      it('default duration', async function () {
+        const { getAnalytics, setSessionTimeoutDuration } = analyticsModular;
+        await setSessionTimeoutDuration(getAnalytics());
+      });
+
+      xit('custom duration', async function () {
+        const { getAnalytics, setSessionTimeoutDuration } = analyticsModular;
+        // TODO: worked on Detox v17, causes crash after transition to v18. Why?
+        await setSessionTimeoutDuration(getAnalytics(), 13371337);
+      });
+    });
+
+    describe('getAppInstanceId()', function () {
+      it('calls native fn without error', async function () {
+        const { getAnalytics, getAppInstanceId } = analyticsModular;
+        await getAppInstanceId(getAnalytics());
+      });
+    });
+
+    describe('setUserId()', function () {
+      it('allows a null values to be set', async function () {
+        const { getAnalytics, setUserId } = analyticsModular;
+        await setUserId(getAnalytics(), null);
+      });
+
+      it('accepts string values', async function () {
+        const { getAnalytics, setUserId } = analyticsModular;
+        await setUserId(getAnalytics(), 'rn-firebase');
+      });
+    });
+
+    describe('setUserProperty()', function () {
+      it('allows a null values to be set', async function () {
+        const { getAnalytics, setUserProperty } = analyticsModular;
+        await setUserProperty(getAnalytics(), 'invertase', null);
+      });
+
+      it('accepts string values', async function () {
+        const { getAnalytics, setUserProperty } = analyticsModular;
+        await setUserProperty(getAnalytics(), 'invertase2', 'rn-firebase');
+      });
+    });
+
+    describe('setUserProperties()', function () {
+      it('allows null values to be set', async function () {
+        const { getAnalytics, setUserProperties } = analyticsModular;
+        await setUserProperties(getAnalytics(), { invertase2: null });
+      });
+
+      it('accepts string values', async function () {
+        const { getAnalytics, setUserProperties } = analyticsModular;
+        await setUserProperties(getAnalytics(), { invertase3: 'rn-firebase' });
+      });
+    });
+
+    describe('setDefaultEventParameters()', function () {
+      it('set null default parameter', async function () {
+        const { getAnalytics, setDefaultEventParameters } = analyticsModular;
+        await setDefaultEventParameters(getAnalytics(), null);
+      });
+
+      it('set undefined default parameter', async function () {
+        const { getAnalytics, setDefaultEventParameters } = analyticsModular;
+        await setDefaultEventParameters(getAnalytics(), undefined);
+      });
+
+      it('set default parameters', async function () {
+        const { getAnalytics, setDefaultEventParameters } = analyticsModular;
+        await setDefaultEventParameters(getAnalytics(), { number: 1, stringn: '123' });
+      });
+    });
+
+    // Test this one near end so all the previous hits are visible in DebugView is that is enabled
+    describe('resetAnalyticsData()', function () {
+      it('calls native fn without error', async function () {
+        const { getAnalytics, resetAnalyticsData } = analyticsModular;
+        await resetAnalyticsData(getAnalytics());
+      });
+    });
+
+    // Test this last so it does not stop delivery to DebugView
+    describe('initiateOnDeviceConversionMeasurementWithEmailAddress()', function () {
+      it('calls native API successfully', async function () {
+        const { getAnalytics, initiateOnDeviceConversionMeasurementWithEmailAddress } =
+          analyticsModular;
+        await initiateOnDeviceConversionMeasurementWithEmailAddress(
+          getAnalytics(),
+          'conversionTest@example.com',
+        );
+      });
+    });
+
+    // Test this last so it does not stop delivery to DebugView
+    describe('on-device conversion measurement with phone', function () {
+      it('calls native API successfully', async function () {
+        const { getAnalytics, initiateOnDeviceConversionMeasurementWithPhoneNumber } =
+          analyticsModular;
+        await initiateOnDeviceConversionMeasurementWithPhoneNumber(getAnalytics(), '+14155551212');
+      });
+
+      it('handles mal-formatted phone number', async function () {
+        try {
+          const { getAnalytics, initiateOnDeviceConversionMeasurementWithPhoneNumber } =
+            analyticsModular;
+          await initiateOnDeviceConversionMeasurementWithPhoneNumber(
+            getAnalytics(),
+            '+notaphonenumber',
+          );
+          fail('Should have returned an error for malformatted phone number');
+        } catch (e) {
+          // coerce the error message to a string and verify
+          if (!(e + '').includes('expected a string value in E.164 format')) {
+            fail('Should have returned an error for malformatted phone number');
+          }
+        }
+      });
+    });
+
+    describe('on-device conversion measurement with hashed credentials', function () {
+      const validLower = '0123456789abcdef'.repeat(4);
+      const validUpper = '0123456789ABCDEF'.repeat(4);
+      const empty = '';
+      const shortEven = validLower.slice(0, 32);
+      const oddLength = validLower.slice(0, 63);
+      const tooLong = `${validLower}aa`;
+      const nonHex = 'g'.repeat(64);
+
+      function expectHexContractError(error, apiLabel) {
+        const message = error + '';
+        if (!message.includes('64-character SHA-256 hex string')) {
+          fail(`Should have returned a hex-length error for ${apiLabel}: ${message}`);
+        }
+      }
+
+      [
+        ['empty', empty],
+        ['short', shortEven],
+        ['odd-length', oddLength],
+        ['too long', tooLong],
+        ['non-hex', nonHex],
+      ].forEach(function ([label, value]) {
+        it(`rejects a ${label} hashed email via JS validation`, async function () {
+          try {
+            const { getAnalytics, initiateOnDeviceConversionMeasurementWithHashedEmailAddress } =
+              analyticsModular;
+            await initiateOnDeviceConversionMeasurementWithHashedEmailAddress(
+              getAnalytics(),
+              value,
+            );
+            fail(`Should have returned an error for ${label} hashed email`);
+          } catch (e) {
+            expectHexContractError(e, `hashed email (${label})`);
+          }
+        });
+
+        it(`rejects a ${label} hashed phone via JS validation`, async function () {
+          try {
+            const { getAnalytics, initiateOnDeviceConversionMeasurementWithHashedPhoneNumber } =
+              analyticsModular;
+            await initiateOnDeviceConversionMeasurementWithHashedPhoneNumber(getAnalytics(), value);
+            fail(`Should have returned an error for ${label} hashed phone`);
+          } catch (e) {
+            expectHexContractError(e, `hashed phone (${label})`);
+          }
+        });
+      });
+
+      it('rejects an E.164 phone number used as a hashed phone', async function () {
+        try {
+          const { getAnalytics, initiateOnDeviceConversionMeasurementWithHashedPhoneNumber } =
+            analyticsModular;
+          await initiateOnDeviceConversionMeasurementWithHashedPhoneNumber(
+            getAnalytics(),
+            '+14155551212',
+          );
+          fail('Should have returned an error for an E.164 hashed phone');
+        } catch (e) {
+          const message = e + '';
+          if (!message.includes('64-character SHA-256 hex string') || !message.includes('E.164')) {
+            fail(`Should have returned an E.164 hashed-phone error: ${message}`);
+          }
+        }
+      });
+
+      it('accepts a lowercase 64-character hashed email (reaches native on iOS)', async function () {
+        const { getAnalytics, initiateOnDeviceConversionMeasurementWithHashedEmailAddress } =
+          analyticsModular;
+        await initiateOnDeviceConversionMeasurementWithHashedEmailAddress(
+          getAnalytics(),
+          validLower,
+        );
+      });
+
+      it('accepts an uppercase 64-character hashed email (reaches native on iOS)', async function () {
+        const { getAnalytics, initiateOnDeviceConversionMeasurementWithHashedEmailAddress } =
+          analyticsModular;
+        await initiateOnDeviceConversionMeasurementWithHashedEmailAddress(
+          getAnalytics(),
+          validUpper,
+        );
+      });
+
+      it('accepts a lowercase 64-character hashed phone (reaches native on iOS)', async function () {
+        const { getAnalytics, initiateOnDeviceConversionMeasurementWithHashedPhoneNumber } =
+          analyticsModular;
+        await initiateOnDeviceConversionMeasurementWithHashedPhoneNumber(
+          getAnalytics(),
+          validLower,
+        );
+      });
+
+      it('accepts an uppercase 64-character hashed phone (reaches native on iOS)', async function () {
+        const { getAnalytics, initiateOnDeviceConversionMeasurementWithHashedPhoneNumber } =
+          analyticsModular;
+        await initiateOnDeviceConversionMeasurementWithHashedPhoneNumber(
+          getAnalytics(),
+          validUpper,
+        );
+      });
+
+      // Bypass JS validation so iOS decoder reject paths actually execute.
+      [
+        ['empty', empty],
+        ['odd-length', oddLength],
+        ['non-hex', nonHex],
+      ].forEach(function ([label, value]) {
+        it(`iOS native decoder rejects a ${label} hashed email`, async function () {
+          if (!Platform.ios) {
+            this.skip();
+          }
+          try {
+            await NativeModules.NativeRNFBTurboAnalytics.initiateOnDeviceConversionMeasurementWithHashedEmailAddress(
+              value,
+            );
+            fail(`Native hashed email should have rejected ${label}`);
+          } catch (e) {
+            expectHexContractError(e, `native hashed email (${label})`);
+          }
+        });
+
+        it(`iOS native decoder rejects a ${label} hashed phone`, async function () {
+          if (!Platform.ios) {
+            this.skip();
+          }
+          try {
+            await NativeModules.NativeRNFBTurboAnalytics.initiateOnDeviceConversionMeasurementWithHashedPhoneNumber(
+              value,
+            );
+            fail(`Native hashed phone should have rejected ${label}`);
+          } catch (e) {
+            expectHexContractError(e, `native hashed phone (${label})`);
+          }
+        });
+      });
+    });
+
+    // Test this last so it does not stop delivery to DebugView
+    describe('setAnalyticsCollectionEnabled()', function () {
+      it('false', async function () {
+        const { getAnalytics, setAnalyticsCollectionEnabled } = analyticsModular;
+        await setAnalyticsCollectionEnabled(getAnalytics(), false);
+      });
+
+      // Enable as the last action, so the rest of the hits are visible in DebugView if enabled
+      it('true', async function () {
+        const { getAnalytics, setAnalyticsCollectionEnabled } = analyticsModular;
+        await setAnalyticsCollectionEnabled(getAnalytics(), true);
+      });
+    });
+
+    describe('setConsent()', function () {
+      it('set ad_storage=true on consentSettings', async function () {
+        const consentSettings = {
+          ad_storage: true,
+        };
+        const { getAnalytics, setConsent } = analyticsModular;
+        await setConsent(getAnalytics(), consentSettings);
+      });
+
+      it('set ad_storage=false and analytics_storage=true on consentSettings', async function () {
+        const consentSettings = {
+          ad_storage: false,
+          analytics_storage: true,
+        };
+        const { getAnalytics, setConsent } = analyticsModular;
+        await setConsent(getAnalytics(), consentSettings);
+      });
+    });
+
+    describe('logTransaction()', function () {
+      it('throws when transactionId is not a valid numeric string', async function () {
+        if (!Platform.ios) {
+          this.skip();
+        }
+        try {
+          const { getAnalytics, logTransaction } = analyticsModular;
+          await logTransaction(getAnalytics(), 'not_a_number');
+          fail('Should have thrown an error');
+        } catch (e) {
+          if (!(e && e.message && e.message.includes('Invalid transactionId'))) {
+            throw e;
+          }
+        }
+      });
+
+      it('throws when transactionId is valid format but transaction not found in StoreKit', async function () {
+        if (!Platform.ios) {
+          this.skip();
+        }
+        try {
+          const { getAnalytics, logTransaction } = analyticsModular;
+          await logTransaction(getAnalytics(), '12345');
+          fail('Should have thrown an error');
+        } catch (e) {
+          if (!(e && e.message && e.message.includes('Transaction not found'))) {
+            throw e;
+          }
+        }
+      });
+
+      it('rejects with unimplemented on Android', async function () {
+        if (!Platform.android) {
+          this.skip();
+        }
+        try {
+          const { getAnalytics, logTransaction } = analyticsModular;
+          await logTransaction(getAnalytics(), '12345');
+          fail('Should have thrown an error');
+        } catch (e) {
+          if (!(e && e.message && e.message.includes('logTransaction is only available on iOS'))) {
+            throw e;
+          }
+        }
+      });
+
+      it('rejects with unimplemented on web (other platform)', async function () {
+        if (!Platform.other) {
+          this.skip();
+        }
+        try {
+          const { getAnalytics, logTransaction } = analyticsModular;
+          await logTransaction(getAnalytics(), '12345');
+          fail('Should have thrown an error');
+        } catch (e) {
+          if (!(e && e.message && e.message.includes('logTransaction is only available on iOS'))) {
+            throw e;
+          }
+        }
+      });
+    });
+
+    describe('getGoogleAnalyticsClientId()', function () {
+      it('Error for getGoogleAnalyticsClientId() on non-other platforms', async function () {
+        if (Platform.other) {
+          this.skip();
+        }
+        try {
+          const { getAnalytics, getGoogleAnalyticsClientId } = analyticsModular;
+          await getGoogleAnalyticsClientId(getAnalytics());
+          fail('Should have thrown an error');
+        } catch (e) {
+          e.message.should.equal('getGoogleAnalyticsClientId is web-only.');
+        }
+      });
+
+      it('getGoogleAnalyticsClientId() works on other platform', async function () {
+        const { getAnalytics, getGoogleAnalyticsClientId } = analyticsModular;
+        if (!Platform.other) {
+          this.skip();
+        }
+        let cid = await getGoogleAnalyticsClientId(getAnalytics());
+        cid.should.not.be.empty;
+      });
+    });
+  });
+});

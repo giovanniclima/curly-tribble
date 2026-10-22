@@ -1,0 +1,76 @@
+/*
+ * Copyright (c) 2022-present Invertase Limited & Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this library except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+const COLLECTION = 'firestore';
+
+describe('firestore().collection().count()', function () {
+  describe('modular', function () {
+    it('throws if no argument provided', function () {
+      const { getFirestore, collection, startAt, query } = firestoreModular;
+
+      try {
+        query(collection(getFirestore(), COLLECTION), startAt());
+        return Promise.reject(new Error('Did not throw an Error.'));
+      } catch (error) {
+        error.message.should.containEql(
+          'Expected a DocumentSnapshot or list of field values but got undefined',
+        );
+        return Promise.resolve();
+      }
+    });
+
+    it('gets countFromServer of collection reference - unfiltered', async function () {
+      const { getFirestore, collection, doc, setDoc, getCountFromServer } = firestoreModular;
+
+      const colRef = collection(getFirestore(), `${COLLECTION}/count/collection`);
+
+      const doc1 = doc(colRef, 'doc1');
+      const doc2 = doc(colRef, 'doc2');
+      const doc3 = doc(colRef, 'doc3');
+      await Promise.all([
+        setDoc(doc1, { foo: 1, bar: { value: 1 } }),
+        setDoc(doc2, { foo: 2, bar: { value: 2 } }),
+        setDoc(doc3, { foo: 3, bar: { value: 3 } }),
+      ]);
+
+      const qs = await getCountFromServer(colRef);
+      qs.data().count.should.eql(3);
+    });
+
+    it('gets correct count of collection reference - where equal', async function () {
+      const { getFirestore, collection, doc, setDoc, query, where, getCountFromServer } =
+        firestoreModular;
+
+      const colRef = collection(getFirestore(), `${COLLECTION}/count/collection`);
+
+      const doc1 = doc(colRef, 'doc1');
+      const doc2 = doc(colRef, 'doc2');
+      const doc3 = doc(colRef, 'doc3');
+      await Promise.all([
+        setDoc(doc1, { foo: 1, bar: { value: 1 } }),
+        setDoc(doc2, { foo: 2, bar: { value: 2 } }),
+        setDoc(doc3, { foo: 3, bar: { value: 3 } }),
+      ]);
+
+      const qs = await getCountFromServer(query(colRef, where('foo', '==', 3)));
+      qs.data().count.should.eql(1);
+    });
+  });
+
+  // TODO
+  // - test behavior when firestore is offline (network disconnected or actually offline?)
+  // - test AggregateQuery.query()
+});

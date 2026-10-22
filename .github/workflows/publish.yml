@@ -1,0 +1,105 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish_npm:
+    if: "(github.repository == 'invertase/react-native-firebase') && (github.event_name == 'workflow_dispatch')"
+    name: 'NPM'
+    timeout-minutes: 60
+    runs-on: xcode-27
+    permissions:
+      id-token: write # enables OIDC for npmjs.com "Trusted Publisher" and provenance
+      contents: write # Lerna createRelease: github (tags + GitHub Release objects)
+    env:
+      # xcode-27 runner (macOS 27) + 27.0 pin matches tests_e2e_ios.yml; needed for CocoaPods in scripts/version.js
+      XCODE_VERSION: '27.0'
+      RNFB_CI_REQUIRE_IOS_SIM_RUNTIME: '0'
+    steps:
+      # https://github.com/actions/checkout/releases
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          # Repository admin required to evade PR+checks branch protection
+          token: ${{ secrets.GH_TOKEN }}
+      # https://github.com/maxim-lobanov/setup-xcode/releases
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+      - name: Configure Apple CI (Xcode 27)
+        run: bash .github/workflows/scripts/configure-apple-ci.sh
+      # https://github.com/actions/setup-node/releases
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - name: Install pinned NPM
+        # OIDC publishing needs a current npm. Content-pin via hardcoded dist.integrity
+        # (see script). engines: ^22.22.2 || ^24.15.0 || >=26.0.0 (setup-node "24" >=24.15).
+        run: bash .github/workflows/scripts/install-pinned-npm.sh
+
+      - name: Setup Ruby
+        # https://github.com/ruby/setup-ruby/releases
+        uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
+        with:
+          ruby-version: 3
+      # Pinned cocoapods/xcodeproj from the root Gemfile. yarn tests:ios:pod:install
+      # and yarn tests:macos:pod:install use `bundle exec pod`. Run frozen bundle
+      # install BEFORE yarn so CI remains supply-chain attack-hardened via the
+      # freeze; after yarn, postinstallDev → yarn ruby:install is a no-op (bundle
+      # check succeeds). BUNDLE_FROZEN fails CI on Gemfile.lock drift (do not use
+      # deprecated --frozen; it would persist into .bundle/config). Do not gem
+      # update cocoapods.
+      - name: Bundle install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 10
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: BUNDLE_FROZEN=true bundle install
+      - name: Yarn Install
+        # https://github.com/nick-fields/retry/releases
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 15
+          retry_wait_seconds: 60
+          max_attempts: 3
+          command: yarn
+      - name: GIT Setup
+        # Alter branding of release commit, despite GITHUB_TOKEN having real owner
+        run: |
+          git config --global user.name 'Invertase Publisher'
+          git config --global user.email 'oss@invertase.io'
+      - name: Publish Packages
+        run: |
+          npx envinfo
+          echo "Verifying working directory is clean..."
+          git diff --exit-code
+          echo "Displaying any current changes..."
+          if yarn lerna changed; then
+            echo "Changes detected, bumping versions..."
+            yarn lerna version --yes --force-publish=*
+          else
+            echo "No changes detected, no versions bumped."
+          fi
+          echo "Syncing unpublished versions with package registry..."
+          yarn lerna publish from-package --yes --loglevel trace
+        env:
+          # Packages are configured on npmjs.com as OIDC Trusted Publisher for this workflow.
+          # org admin Github Token required for the changelog/tag commit+push
+          # to work via an exception to branch protection rules.
+          # Lerna createRelease: github reads process.env.GH_TOKEN specifically.
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+  deploy-api-reference:
+    name: 'Deploy API Reference'
+    needs: publish_npm
+    uses: ./.github/workflows/deploy-api-reference.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

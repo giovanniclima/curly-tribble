@@ -1,0 +1,77 @@
+{
+  // TypeDoc parses typedoc.json as JSONC (comments OK). When options here change URL
+  // structure (router, entryPoints, navigation, etc.), audit docs.json redirects — see
+  // okf-bundle/documentation-site-maintenance.md § "Redirect audit".
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "React Native Firebase",
+  "customCss": "./docs/reference.css",
+  "entryPointStrategy": "packages",
+  "entryPoints": [
+    "packages/app",
+    "packages/ai",
+    "packages/analytics",
+    "packages/app-check",
+    "packages/app-distribution",
+    "packages/auth",
+    "packages/crashlytics",
+    "packages/database",
+    "packages/firestore",
+    "packages/functions",
+    "packages/in-app-messaging",
+    "packages/installations",
+    "packages/messaging",
+    "packages/perf",
+    "packages/phone-number-verification",
+    "packages/remote-config",
+    "packages/storage"
+  ],
+  "out": "reference",
+  "githubPages": true,
+  "router": "structure",
+  "navigation": {
+    "includeFolders": true,
+    "includeCategories": true,
+    "includeGroups": true,
+    "excludeReferences": false
+  },
+  "categorizeByGroup": false,
+  "sortEntryPoints": false,
+  "excludeExternals": true,
+  "useFirstParagraphOfCommentAsSummary": true,
+  "searchInComments": true,
+  "hideGenerator": true,
+  "cleanOutputDir": true,
+  "titleLink": "/",
+  "favicon": "https://static.invertase.io/assets/react-native-firebase-favicon.png",
+  "navigationLinks": {
+    "Documentation": "https://rnfirebase.io",
+    "GitHub": "https://github.com/invertase/react-native-firebase",
+    "npm": "https://www.npmjs.com/search?q=scope%3Areact-native-firebase"
+  },
+  "sidebarLinks": {
+    "Documentation": "https://rnfirebase.io"
+  },
+  "readme": "docs/reference-api-readme.md",
+  "packageOptions": {
+    "excludeExternals": true,
+    "excludePrivate": true,
+    "readme": "none",
+    "skipErrorChecking": true,
+    "gitRevision": "main",
+    "groupOrder": ["Functions", "*"]
+  },
+  "externalSymbolLinkMappings": {
+    "@firebase/app": {
+      "FirebaseApp": "https://firebase.google.com/docs/reference/js/app.firebaseapp"
+    }
+  },
+  "treatWarningsAsErrors": true,
+  "treatValidationWarningsAsErrors": true,
+  "validation": {
+    "notExported": false,
+    "invalidLink": true,
+    "invalidPath": true,
+    "rewrittenLink": true,
+    "notDocumented": false
+  }
+}

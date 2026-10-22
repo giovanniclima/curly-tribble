@@ -1,0 +1,33 @@
+{
+  "name": "@react-native-firebase/_template_",
+  "version": "_VERSION_",
+  "author": "Invertase <oss@invertase.io> (http://invertase.io)",
+  "description": "React Native Firebase - _Template_",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "genversion --semi lib/version.js",
+    "build:clean": "rimraf android/build && rimraf ios/build",
+    "prepare": "yarn run build"
+  },
+  "homepage": "https://rnfirebase.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/invertase/react-native-firebase",
+    "directory": "packages/_template_"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "react",
+    "react-native",
+    "firebase",
+    "_template_"
+  ],
+  "peerDependencies": {
+    "@react-native-firebase/app": "_VERSION_"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

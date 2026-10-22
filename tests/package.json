@@ -1,0 +1,91 @@
+{
+  "name": "react-native-firebase-tests",
+  "version": "27.0.0",
+  "private": true,
+  "engines": {
+    "node": "^22.13.0"
+  },
+  "codegenConfig": {
+    "name": "RNFBTestingTurboModules",
+    "type": "modules",
+    "jsSrcsDir": "specs",
+    "android": {
+      "javaPackageName": "com.invertase.testing"
+    },
+    "ios": {
+      "modulesProvider": {
+        "NativeRNFBTesting": "RNFBTestingTurboModule"
+      }
+    }
+  },
+  "scripts": {
+    "build:clean": "rimraf dist && rimraf android/build && rimraf android/app/build && rimraf android/.gradle && rimraf ios/build",
+    "prepare": "patch-package",
+    "codegen": "yarn android:codegen && yarn ios:codegen",
+    "android:codegen": "node ../scripts/codegen-package.mjs testing android",
+    "ios:codegen": "node ../scripts/codegen-package.mjs testing ios"
+  },
+  "dependencies": {
+    "@invertase/react-native-apple-authentication": "^2.5.1",
+    "@react-native-async-storage/async-storage": "^3.1.1",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-platform-android": "20.2.0",
+    "@react-native-community/cli-platform-ios": "20.2.0",
+    "@react-native-firebase/ai": "27.0.0",
+    "@react-native-firebase/analytics": "27.0.0",
+    "@react-native-firebase/app": "27.0.0",
+    "@react-native-firebase/app-check": "27.0.0",
+    "@react-native-firebase/app-distribution": "27.0.0",
+    "@react-native-firebase/app-types": "6.7.2",
+    "@react-native-firebase/auth": "27.0.0",
+    "@react-native-firebase/crashlytics": "27.0.0",
+    "@react-native-firebase/database": "27.0.0",
+    "@react-native-firebase/firestore": "27.0.0",
+    "@react-native-firebase/functions": "27.0.0",
+    "@react-native-firebase/in-app-messaging": "27.0.0",
+    "@react-native-firebase/installations": "27.0.0",
+    "@react-native-firebase/messaging": "27.0.0",
+    "@react-native-firebase/perf": "27.0.0",
+    "@react-native-firebase/phone-number-verification": "27.0.0",
+    "@react-native-firebase/remote-config": "27.0.0",
+    "@react-native-firebase/storage": "27.0.0",
+    "postinstall-postinstall": "2.1.0",
+    "prop-types": "^15.8.1",
+    "qrcode-generator": "^2.0.4",
+    "react": "19.3.0",
+    "react-native": "0.88.0-rc.3",
+    "react-native-coverage": "0.2.0",
+    "react-native-device-info": "^15.0.2",
+    "util": "^0.12.5"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
+    "@react-native/babel-preset": "0.88.0-rc.3",
+    "@react-native/jest-preset": "0.88.0-rc.3",
+    "@react-native/metro-config": "0.88.0-rc.3",
+    "assert": "^2.1.0",
+    "axios": "^1.15.2",
+    "babel-plugin-istanbul": "^7.0.1",
+    "babel-plugin-transform-inline-environment-variables": "^0.4.4",
+    "cpy-cli": "^7.0.0",
+    "detox": "patch:detox@npm%3A20.51.0#~/.yarn/patches/detox-npm-20.51.0-3e13b6e309.patch",
+    "firebase": "13.0.0",
+    "firebase-tools": "^15.22.4",
+    "jest-circus": "^30.3.0",
+    "jest-environment-node": "^30.3.0",
+    "jet": "patch:jet@npm%3A0.9.0-dev.13#~/.yarn/patches/jet-npm-0.9.0-dev.13-3321aeea6e.patch",
+    "mocha": "^11.7.5",
+    "nyc": "^18.0.0",
+    "patch-package": "^8.0.1",
+    "should": "^13.2.3",
+    "should-sinon": "0.0.6",
+    "sinon": "21.1.2"
+  },
+  "nx": {
+    "targets": {
+      "prepare": {
+        "cache": false
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+package.json
+packages/**/node_modules/**
+packages/**/plugin/build/**
+tests/node_modules/**
+tests/app.playground.js
+tests/app.smartreply.js
+tests/app.admob.js
+test-expo/ios/**
+test-expo/android/**
+test-expo/.expo/**
+
+/.nx/workspace-data

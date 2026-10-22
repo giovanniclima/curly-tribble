@@ -1,0 +1,5 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["lib/index.ts", "lib/types/analytics.ts"],
+  "tsconfig": "tsconfig.json"
+}

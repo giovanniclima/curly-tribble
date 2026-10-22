@@ -1,0 +1,92 @@
+{
+  "name": "@react-native-firebase/storage",
+  "version": "27.0.0",
+  "author": "Invertase <oss@invertase.io> (http://invertase.io)",
+  "description": "React Native Firebase - React Native Firebase provides native integration with Cloud Storage, providing support to upload and download files directly from your device and from your Firebase Cloud Storage bucket.",
+  "main": "./dist/module/index.js",
+  "types": "./dist/typescript/lib/index.d.ts",
+  "codegenConfig": {
+    "name": "RNFBStorageTurboModules",
+    "type": "modules",
+    "jsSrcsDir": "specs",
+    "includesGeneratedCode": true,
+    "android": {
+      "javaPackageName": "io.invertase.firebase.storage"
+    },
+    "ios": {
+      "modulesProvider": {
+        "NativeRNFBTurboStorage": "RNFBStorageModule"
+      }
+    }
+  },
+  "scripts": {
+    "build": "genversion --esm --semi lib/version.ts",
+    "build:clean": "rimraf android/build && rimraf ios/build",
+    "compile": "bob build",
+    "prepare": "yarn run build && yarn compile",
+    "codegen": "yarn android:codegen && yarn ios:codegen",
+    "android:codegen": "node ../../scripts/codegen-package.mjs storage android",
+    "ios:codegen": "node ../../scripts/codegen-package.mjs storage ios"
+  },
+  "homepage": "https://rnfirebase.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/invertase/react-native-firebase",
+    "directory": "packages/storage"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "react",
+    "react-native",
+    "firebase",
+    "images",
+    "audio",
+    "video",
+    "json",
+    "cloud storage",
+    "storage",
+    "upload",
+    "download"
+  ],
+  "peerDependencies": {
+    "@react-native-firebase/app": "27.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@react-native-firebase/app": "27.0.0",
+    "react-native-builder-bob": "^0.41.0"
+  },
+  "exports": {
+    ".": {
+      "source": "./lib/index.ts",
+      "types": "./dist/typescript/lib/index.d.ts",
+      "default": "./dist/module/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "react-native-builder-bob": {
+    "source": "lib",
+    "output": "dist",
+    "targets": [
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "typescript",
+        {
+          "tsc": "../../node_modules/.bin/tsc"
+        }
+      ]
+    ]
+  },
+  "eslintIgnore": [
+    "node_modules/",
+    "dist/"
+  ]
+}
